@@ -136,21 +136,37 @@ app.post('/normalize', async (req: Request, res: Response) => {
       });
     }
 
+    // Header overrides for custom API keys if provided per-request
+    const getHeaderString = (val: string | string[] | undefined): string | undefined =>
+      typeof val === 'string' ? val : (Array.isArray(val) ? val[0] : undefined);
+
+    const requestedProvider =
+      req.body.specificProvider ||
+      req.body.provider ||
+      options.specificProvider ||
+      options.provider ||
+      getHeaderString(req.headers['x-provider']) ||
+      getHeaderString(req.headers['x-specific-provider']);
+
+    const isMockRequested =
+      requestedProvider === 'mock' ||
+      requestedProvider === 'deterministic' ||
+      req.body.allowMock === true ||
+      options.allowMock === true ||
+      req.body.useMock === true ||
+      req.headers['x-allow-mock'] === 'true';
+
     // Merge options
     const mergedOptions: NormalizeOptions = {
       ...options,
       ...(template && { template }),
+      ...(requestedProvider && { specificProvider: requestedProvider }),
+      ...(isMockRequested && { allowMock: true }),
       ...(req.body.autoSplit !== undefined && { autoSplit: Boolean(req.body.autoSplit) }),
       ...(req.body.chunked !== undefined && { chunked: Boolean(req.body.chunked) }),
       ...(req.body.skipCache !== undefined && { skipCache: Boolean(req.body.skipCache) }),
-      ...(req.body.cacheTtlMs !== undefined && { cacheTtlMs: Number(req.body.cacheTtlMs) }),
-      ...(req.body.allowMock !== undefined && { allowMock: Boolean(req.body.allowMock) }),
-      ...(req.headers['x-allow-mock'] !== undefined && { allowMock: req.headers['x-allow-mock'] === 'true' })
+      ...(req.body.cacheTtlMs !== undefined && { cacheTtlMs: Number(req.body.cacheTtlMs) })
     };
-
-    // Header overrides for custom API keys if provided per-request
-    const getHeaderString = (val: string | string[] | undefined): string | undefined =>
-      typeof val === 'string' ? val : (Array.isArray(val) ? val[0] : undefined);
 
     const reqGeminiKey = getHeaderString(req.headers['x-gemini-key']) || getHeaderString(req.headers['x-api-key']);
     const reqOpenAiKey = getHeaderString(req.headers['x-openai-key']);
@@ -248,10 +264,29 @@ app.post('/normalize/batch', async (req: Request, res: Response) => {
     for (let i = 0; i < items.length; i++) {
       const item = items[i];
       try {
+        const requestedItemProvider =
+          item.specificProvider ||
+          item.provider ||
+          item.options?.specificProvider ||
+          item.options?.provider ||
+          req.body.specificProvider ||
+          req.body.provider ||
+          options.specificProvider ||
+          options.provider;
+
+        const isMockItem =
+          requestedItemProvider === 'mock' ||
+          requestedItemProvider === 'deterministic' ||
+          item.allowMock === true ||
+          item.options?.allowMock === true ||
+          req.body.allowMock === true ||
+          options.allowMock === true;
+
         const itemOptions: NormalizeOptions = {
           ...options,
           ...item.options,
-          ...(req.body.allowMock !== undefined && { allowMock: Boolean(req.body.allowMock) }),
+          ...(requestedItemProvider && { specificProvider: requestedItemProvider }),
+          ...(isMockItem && { allowMock: true }),
           defaults: { ...defaults, ...(options.defaults || {}), ...(item.options?.defaults || {}) }
         };
         const result = await normalizer.normalize(item.text, item.schema, itemOptions);

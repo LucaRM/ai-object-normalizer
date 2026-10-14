@@ -120,38 +120,61 @@ export class MockProvider implements NormalizerProvider {
   }
 
   private extractMonsterStatBlock(text: string, schema: any, options: NormalizeOptions): string {
-    const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
-    const name = lines[0] || 'Unknown Creature';
+    // 1. Sanitize text and markdown links: [Creature](url) -> Creature
+    let cleaned = text.replace(/\[([^\]]+)\]\([^)]+\)/g, '$1').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
 
-    // Size & Type & Alignment (skips preceding lore sentences)
+    // If text contains multiple monsters, isolate the first monster's stat block
+    const monsterHeaderRegex = /(?:^|\n)([A-Z0-9][A-Za-z0-9'\s\-–—/]+?)\s*\n((?:Tiny|Small|Medium|Large|Huge|Gargantuan)(?:\s+or\s+(?:Tiny|Small|Medium|Large|Huge|Gargantuan))?\s+(?:Aberration|Beast|Celestial|Construct|Dragon|Elemental|Fey|Fiend|Giant|Humanoid|Monstrosity|Ooze|Plant|Undead)(?:\s*\([^\)]+\))?[^\n]*)/gi;
+    const matches: number[] = [];
+    let m: RegExpExecArray | null;
+    while ((m = monsterHeaderRegex.exec(cleaned)) !== null) {
+      const lookahead = cleaned.slice(m.index, m.index + 500);
+      if (/(?:AC|Armor\s+Class)\s*[\n:]?\s*\d+/i.test(lookahead)) {
+        matches.push(m.index);
+      }
+    }
+    if (matches.length > 1) {
+      cleaned = cleaned.slice(0, matches[1]).trim();
+    }
+
+    const lines = cleaned.split('\n').map(l => l.trim()).filter(Boolean);
+
+    // 2. Size, Type, Alignment, and True Creature Name
     let size = 'Medium';
     let type = 'Beast';
     let alignment = 'Unaligned';
+    let name = lines[0] || 'Unknown Creature';
 
-    for (let i = 1; i < Math.min(lines.length, 8); i++) {
+    const sizeTypeRegex = /^((?:Tiny|Small|Medium|Large|Huge|Gargantuan)(?:\s+or\s+(?:Tiny|Small|Medium|Large|Huge|Gargantuan))?)\s+([^,]+)(?:,\s*(.+))?$/i;
+
+    for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
-      const match = line.match(/^(Tiny|Small|Medium|Large|Huge|Gargantuan)\s+([^,]+)(?:,\s*(.+))?$/i);
+      const match = line.match(sizeTypeRegex);
       if (match) {
-        size = match[1].charAt(0).toUpperCase() + match[1].slice(1).toLowerCase();
+        size = match[1].trim();
         type = match[2].trim();
         if (match[3]) alignment = match[3].trim();
+        // The monster's authentic name immediately precedes the size/type line
+        if (i > 0 && lines[i - 1]) {
+          name = lines[i - 1].replace(/^[—–-]\s*/, '').trim();
+        }
         break;
       }
     }
 
     // AC: Matches "Armor Class 16", "AC 16", "AC 16 Initiative +3 (13)"
-    const acMatch = text.match(/(?:Armor Class|AC)\s*[\n:]?\s*(\d+)/i);
+    const acMatch = cleaned.match(/(?:Armor Class|AC)\s*[\n:]?\s*(\d+)/i);
     const armorClass = acMatch ? parseInt(acMatch[1], 10) : 10;
 
     // HP: Matches "Hit Points 66", "HP 66 (12d8 + 12)"
-    const hpMatch = text.match(/(?:Hit Points|HP)\s*[\n:]?\s*(\d+)/i);
+    const hpMatch = cleaned.match(/(?:Hit Points|HP)\s*[\n:]?\s*(\d+)/i);
     const hitPoints = hpMatch ? parseInt(hpMatch[1], 10) : 10;
 
     // Speed
-    const speedMatch = text.match(/Speed:?\s*([^\n]+)/i);
+    const speedMatch = cleaned.match(/Speed:?\s*([^\n]+)/i);
     const speed = speedMatch ? speedMatch[1].trim() : '30 ft.';
 
-    // Abilities
+    // Abilities: Matches vertical tables ("Str\n26\n+8\n+8") as well as horizontal ("STR 26")
     const abilities: Record<string, number> = {
       strength: 10,
       dexterity: 10,
@@ -161,54 +184,54 @@ export class MockProvider implements NormalizerProvider {
       charisma: 10
     };
 
-    const strMatch = text.match(/\bSTR\b\s*(\d+)/i);
+    const strMatch = cleaned.match(/\b(?:STR|Strength)\b[\s:]*(\d+)/i);
     if (strMatch) abilities.strength = parseInt(strMatch[1], 10);
-    const dexMatch = text.match(/\bDEX\b\s*(\d+)/i);
+    const dexMatch = cleaned.match(/\b(?:DEX|Dexterity)\b[\s:]*(\d+)/i);
     if (dexMatch) abilities.dexterity = parseInt(dexMatch[1], 10);
-    const conMatch = text.match(/\bCON\b\s*(\d+)/i);
+    const conMatch = cleaned.match(/\b(?:CON|Constitution)\b[\s:]*(\d+)/i);
     if (conMatch) abilities.constitution = parseInt(conMatch[1], 10);
-    const intMatch = text.match(/\bINT\b\s*(\d+)/i);
+    const intMatch = cleaned.match(/\b(?:INT|Intelligence)\b[\s:]*(\d+)/i);
     if (intMatch) abilities.intelligence = parseInt(intMatch[1], 10);
-    const wisMatch = text.match(/\bWIS\b\s*(\d+)/i);
+    const wisMatch = cleaned.match(/\b(?:WIS|Wisdom)\b[\s:]*(\d+)/i);
     if (wisMatch) abilities.wisdom = parseInt(wisMatch[1], 10);
-    const chaMatch = text.match(/\bCHA\b\s*(\d+)/i);
+    const chaMatch = cleaned.match(/\b(?:CHA|Charisma)\b[\s:]*(\d+)/i);
     if (chaMatch) abilities.charisma = parseInt(chaMatch[1], 10);
 
     // Saving Throws
-    const savesMatch = text.match(/Saving Throws\s*[\n:]?\s*([^\n]+)/i);
+    const savesMatch = cleaned.match(/Saving Throws\s*[\n:]?\s*([^\n]+)/i);
     const savingThrows = savesMatch ? savesMatch[1].split(',').map(s => s.trim()) : [];
 
     // Skills
-    const skillsMatch = text.match(/Skills\s*[\n:]?\s*([^\n]+)/i);
+    const skillsMatch = cleaned.match(/Skills\s*[\n:]?\s*([^\n]+)/i);
     const skills = skillsMatch ? skillsMatch[1].split(',').map(s => s.trim()) : [];
 
     // Resistances / Immunities
-    const resMatch = text.match(/Damage Resistances\s*[\n:]?\s*([^\n]+)/i);
+    const resMatch = cleaned.match(/Damage Resistances\s*[\n:]?\s*([^\n]+)/i);
     const damageResistances = resMatch ? resMatch[1].trim() : '';
 
-    const immMatch = text.match(/Damage Immunities\s*[\n:]?\s*([^\n]+)/i);
+    const immMatch = cleaned.match(/Damage Immunities\s*[\n:]?\s*([^\n]+)/i);
     const damageImmunities = immMatch ? immMatch[1].trim() : '';
 
-    const condMatch = text.match(/Condition Immunities\s*[\n:]?\s*([^\n]+)/i);
+    const condMatch = cleaned.match(/Condition Immunities\s*[\n:]?\s*([^\n]+)/i);
     const conditionImmunities = condMatch ? condMatch[1].trim() : '';
 
     // Senses
-    const sensesMatch = text.match(/Senses\s*[\n:]?\s*([^\n]+)/i);
+    const sensesMatch = cleaned.match(/Senses\s*[\n:]?\s*([^\n]+)/i);
     const senses = sensesMatch ? sensesMatch[1].trim() : 'Passive Perception 10';
 
     // Languages
-    const langMatch = text.match(/Languages\s*[\n:]?\s*([^\n]+)/i);
+    const langMatch = cleaned.match(/Languages\s*[\n:]?\s*([^\n]+)/i);
     const languages = langMatch ? langMatch[1].trim() : '—';
 
     // Challenge / CR: Matches "Challenge 4", "CR 4", "CR 4 (XP 1,100; PB +2)"
-    const crMatch = text.match(/(?:Challenge|CR)\s*[\n:]?\s*(\d+(?:\/\d+)?)/i);
+    const crMatch = cleaned.match(/(?:Challenge|CR)\s*[\n:]?\s*(\d+(?:\/\d+)?)/i);
     const challengeRating = crMatch ? crMatch[1] : '1';
 
-    const pbMatch = text.match(/PB\s*\+?(\d+)/i);
+    const pbMatch = cleaned.match(/PB\s*\+?(\d+)/i);
     const proficiencyBonus = pbMatch ? parseInt(pbMatch[1], 10) : 2;
 
     // High precision deterministic section parsing for Traits, Actions, Reactions, Legendary Actions
-    const sections = this.parseMonsterSections(text);
+    const sections = this.parseMonsterSections(cleaned);
 
     const result: any = {
       ...MONSTER_TEMPLATE,
@@ -321,6 +344,11 @@ export class MockProvider implements NormalizerProvider {
       const line = rawLine.trim();
       if (!line) continue;
 
+      // Stop parsing if we hit following non-stat block chapters, habitats, tables or quote markers
+      if (/^(?:Habitat:|Treasure:|Roll on\s|\d+d\d+\b|Rule\s+\d+:|[—–-]\s*[A-Z])/i.test(line)) {
+        break;
+      }
+
       // Skip generic section intros like "The dragon can take 3 legendary actions..."
       if (/^the\s+[a-z0-9\s\-]+can\s+take\s+\d+\s+legendary\s+actions/i.test(line)) {
         continue;
@@ -335,14 +363,21 @@ export class MockProvider implements NormalizerProvider {
       }
 
       // Check for Title. Description or **Title.** Description or Title (Extra). Description
-      const titleMatch = line.match(/^(?:\*\*)?([A-Z0-9][A-Za-z0-9'\s\(\)\/\-–—]+?)(?:\*\*)?\.\s*(.*)$/);
+      const titleMatch = line.match(/^(?:\*\*)?([A-Z0-9][A-Za-z0-9'\s\(\)\/\-–—]+?)(?:\*\*)?\.\s+(.+)$/);
       if (titleMatch) {
-        if (current) entries.push(current);
-        current = {
-          name: titleMatch[1].replace(/^\*\*|\*\*$/g, '').trim(),
-          description: titleMatch[2].trim()
-        };
-        continue;
+        const potentialName = titleMatch[1].replace(/^\*\*|\*\*$/g, '').trim();
+        if (
+          potentialName.length <= 45 &&
+          !/[,;!?]/.test(potentialName) &&
+          !/^(?:Speed|AC|HP|Ability|Score|Mod|Save|Str|Dex|Con|Int|Wis|Cha|The|Such|These|Those|When|If|After|Failure|Success|Trigger|Response)\b/i.test(potentialName)
+        ) {
+          if (current) entries.push(current);
+          current = {
+            name: potentialName,
+            description: titleMatch[2].trim()
+          };
+          continue;
+        }
       }
 
       // Continuation line for current entry

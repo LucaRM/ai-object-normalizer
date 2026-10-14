@@ -42,18 +42,18 @@ export class TextSplitter {
     const cleaned = this.cleanMarkdownLinks(rawText);
 
     // Pattern for monster header: Name followed by (Size Type, Alignment)
-    // Matches sizes: Tiny, Small, Medium, Large, Huge, Gargantuan
-    const monsterHeaderRegex = /(?:^|\n)(?:\[([^\]]+)\]|([A-Z][A-Za-z0-9'\s\-]+))\n((?:Tiny|Small|Medium|Large|Huge|Gargantuan)\s+(?:Aberration|Beast|Celestial|Construct|Dragon|Elemental|Fey|Fiend|Giant|Humanoid|Monstrosity|Ooze|Plant|Undead)[^\n]*)/gi;
+    // Matches sizes: Tiny, Small, Medium, Large, Huge, Gargantuan (including 2024 "Medium or Small")
+    const monsterHeaderRegex = /(?:^|\n)([A-Z0-9][A-Za-z0-9'\s\-–—/]+?)\s*\n((?:Tiny|Small|Medium|Large|Huge|Gargantuan)(?:\s+or\s+(?:Tiny|Small|Medium|Large|Huge|Gargantuan))?\s+(?:Aberration|Beast|Celestial|Construct|Dragon|Elemental|Fey|Fiend|Giant|Humanoid|Monstrosity|Ooze|Plant|Undead)(?:\s*\([^\)]+\))?[^\n]*)/gi;
 
     const matches: Array<{ name: string; fullType: string; startIndex: number }> = [];
     let match: RegExpExecArray | null;
 
     while ((match = monsterHeaderRegex.exec(cleaned)) !== null) {
-      const name = (match[1] || match[2]).trim();
-      const fullType = match[3].trim();
-      // Only treat as monster stat block if followed within next 200 chars by AC or Armor Class
-      const lookahead = cleaned.slice(match.index, match.index + 300);
-      if (/AC\s+\d+|Armor\s+Class\s+\d+/i.test(lookahead)) {
+      const name = match[1].trim();
+      const fullType = match[2].trim();
+      // Only treat as monster stat block if followed within next 500 chars by AC or Armor Class
+      const lookahead = cleaned.slice(match.index, match.index + 500);
+      if (/(?:AC|Armor\s+Class)\s*[\n:]?\s*\d+/i.test(lookahead)) {
         matches.push({
           name,
           fullType,
