@@ -1,8 +1,11 @@
 import { NormalizerProvider, NormalizeOptions } from '../types';
 import { MONSTER_TEMPLATE } from '../templates/monster';
+import { WEAPON_TEMPLATE } from '../templates/weapon';
+import { SPELL_TEMPLATE } from '../templates/spell';
+import { MAGICAL_ITEM_TEMPLATE } from '../templates/magicalItem';
 
 export class MockProvider implements NormalizerProvider {
-  public name = 'Mock';
+  public name = 'Deterministic / Rule-Based Extractor';
   private available = true;
 
   constructor(available: boolean = true) {
@@ -35,7 +38,7 @@ export class MockProvider implements NormalizerProvider {
     const tmpl = (options.template || '').toLowerCase().trim();
 
     // 1. Monster
-    if (tmpl === 'monster' || text.toLowerCase().includes('tiger') || text.toLowerCase().includes('armor class')) {
+    if (tmpl === 'monster' || text.toLowerCase().includes('armor class') || text.toLowerCase().includes('hit points')) {
       return this.extractMonsterStatBlock(text, schema, options);
     }
 
@@ -49,32 +52,7 @@ export class MockProvider implements NormalizerProvider {
       return this.extractMagicalItem(text, schema, options);
     }
 
-    // 4. Species
-    if (tmpl === 'species' || tmpl === 'race' || text.toLowerCase().includes('creature type:') || text.toLowerCase().includes('fey ancestry')) {
-      return this.extractSpecies(text, schema, options);
-    }
-
-    // 5. Class
-    if (tmpl === 'class' || text.toLowerCase().includes('hit point die:') || text.toLowerCase().includes('action surge')) {
-      return this.extractClass(text, schema, options);
-    }
-
-    // 6. Subclass
-    if (tmpl === 'subclass' || text.toLowerCase().includes('subclass') || text.toLowerCase().includes('improved critical')) {
-      return this.extractSubclass(text, schema, options);
-    }
-
-    // 7. Feat
-    if (tmpl === 'feat' || text.toLowerCase().includes('prerequisite:')) {
-      return this.extractFeat(text, schema, options);
-    }
-
-    // 8. Background
-    if (tmpl === 'background' || text.toLowerCase().includes('gaming set') || text.toLowerCase().includes('soldier')) {
-      return this.extractBackground(text, schema, options);
-    }
-
-    // 9. Weapon
+    // 4. Weapon
     if (tmpl === 'weapon' || text.toLowerCase().includes('versatile') || text.toLowerCase().includes('mastery:')) {
       return this.extractWeapon(text, schema, options);
     }
@@ -85,137 +63,59 @@ export class MockProvider implements NormalizerProvider {
 
   private extractSpell(text: string, schema: any, options: NormalizeOptions): string {
     const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
-    const name = lines[0] || 'Fireball';
-    const clone = { ...schema, name };
-    if (options.targetLocale === 'pt-BR') {
-      clone.translations = {
-        'pt-BR': {
-          name: name === 'Fireball' ? 'Bola de Fogo' : name,
-          description: 'Um raio brilhante lampeja do seu dedo indicador...',
-          _metadata: { locale: 'pt-BR', translatedAt: new Date().toISOString(), source: 'AI_TRANSLATION', quality: 'DRAFT' },
-          metadata: { reviewed: false, translatedBy: 'ai' }
-        }
-      };
-    }
+    const name = lines[0] || 'Unknown Spell';
+    const descLines = lines.slice(1).filter(l => !/^(casting time|range|components|duration):/i.test(l));
+    const description = descLines.join('\n\n') || text.trim();
+
+    const castingTimeMatch = text.match(/Casting Time:\s*([^\n]+)/i);
+    const rangeMatch = text.match(/Range:\s*([^\n]+)/i);
+    const componentsMatch = text.match(/Components:\s*([^\n]+)/i);
+    const durationMatch = text.match(/Duration:\s*([^\n]+)/i);
+
+    const clone = {
+      ...SPELL_TEMPLATE,
+      ...schema,
+      name,
+      description,
+      castingTime: castingTimeMatch ? castingTimeMatch[1].trim() : '1 action',
+      range: rangeMatch ? rangeMatch[1].trim() : 'Self',
+      components: componentsMatch ? componentsMatch[1].trim() : 'V, S',
+      duration: durationMatch ? durationMatch[1].trim() : 'Instantaneous'
+    };
+
     return JSON.stringify(clone, null, 2);
   }
 
   private extractMagicalItem(text: string, schema: any, options: NormalizeOptions): string {
     const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
-    const name = lines[0] || 'Flame Tongue';
-    const clone = { ...schema, name };
-    if (options.targetLocale === 'pt-BR') {
-      clone.translations = {
-        'pt-BR': {
-          name: name === 'Flame Tongue' ? 'Língua de Fogo' : name,
-          description: 'Você pode usar uma ação bônus para pronunciar a palavra de comando...',
-          _metadata: { locale: 'pt-BR', translatedAt: new Date().toISOString(), source: 'AI_TRANSLATION', quality: 'DRAFT' },
-          metadata: { reviewed: false, translatedBy: 'ai' }
-        }
-      };
-    }
-    return JSON.stringify(clone, null, 2);
-  }
+    const name = lines[0] || 'Unknown Magical Item';
+    const descLines = lines.slice(1).filter(l => !/^(wondrous item|weapon|armor|ring|rod|scroll|staff|wand)/i.test(l));
 
-  private extractSpecies(text: string, schema: any, options: NormalizeOptions): string {
-    const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
-    const name = lines[0] || 'Elf';
-    const clone = { ...schema, name };
-    if (options.targetLocale === 'pt-BR') {
-      clone.translations = {
-        'pt-BR': {
-          name: name === 'Elf' ? 'Elfo' : name,
-          description: 'Elfos são um povo mágico de graça sobrenatural...',
-          _metadata: { locale: 'pt-BR', translatedAt: new Date().toISOString(), source: 'AI_TRANSLATION', quality: 'DRAFT' },
-          metadata: { reviewed: false, translatedBy: 'ai' }
-        }
-      };
-    }
-    return JSON.stringify(clone, null, 2);
-  }
+    const clone = {
+      ...MAGICAL_ITEM_TEMPLATE,
+      ...schema,
+      name,
+      description: descLines.join('\n\n') || text.trim()
+    };
 
-  private extractClass(text: string, schema: any, options: NormalizeOptions): string {
-    const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
-    const name = lines[0] || 'Fighter';
-    const clone = { ...schema, name };
-    if (options.targetLocale === 'pt-BR') {
-      clone.translations = {
-        'pt-BR': {
-          name: name === 'Fighter' ? 'Guerreiro' : name,
-          description: 'Guerreiros dominam as artes marciais...',
-          _metadata: { locale: 'pt-BR', translatedAt: new Date().toISOString(), source: 'AI_TRANSLATION', quality: 'DRAFT' },
-          metadata: { reviewed: false, translatedBy: 'ai' }
-        }
-      };
-    }
-    return JSON.stringify(clone, null, 2);
-  }
-
-  private extractSubclass(text: string, schema: any, options: NormalizeOptions): string {
-    const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
-    const name = lines[0] || 'Champion';
-    const clone = { ...schema, name };
-    if (options.targetLocale === 'pt-BR') {
-      clone.translations = {
-        'pt-BR': {
-          name: name === 'Champion' ? 'Campeão' : name,
-          description: 'O protótipo do Campeão concentra-se no desenvolvimento do poder físico...',
-          _metadata: { locale: 'pt-BR', translatedAt: new Date().toISOString(), source: 'AI_TRANSLATION', quality: 'DRAFT' },
-          metadata: { reviewed: false, translatedBy: 'ai' }
-        }
-      };
-    }
-    return JSON.stringify(clone, null, 2);
-  }
-
-  private extractFeat(text: string, schema: any, options: NormalizeOptions): string {
-    const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
-    const name = lines[0] || 'Great Weapon Master';
-    const clone = { ...schema, name };
-    if (options.targetLocale === 'pt-BR') {
-      clone.translations = {
-        'pt-BR': {
-          name: name === 'Great Weapon Master' ? 'Mestre em Armas Grandes' : name,
-          description: 'Você aprendeu a usar o peso de uma arma a seu favor...',
-          _metadata: { locale: 'pt-BR', translatedAt: new Date().toISOString(), source: 'AI_TRANSLATION', quality: 'DRAFT' },
-          metadata: { reviewed: false, translatedBy: 'ai' }
-        }
-      };
-    }
-    return JSON.stringify(clone, null, 2);
-  }
-
-  private extractBackground(text: string, schema: any, options: NormalizeOptions): string {
-    const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
-    const name = lines[0] || 'Soldier';
-    const clone = { ...schema, name };
-    if (options.targetLocale === 'pt-BR') {
-      clone.translations = {
-        'pt-BR': {
-          name: name === 'Soldier' ? 'Soldado' : name,
-          description: 'Você começou a treinar para a guerra assim que teve idade...',
-          _metadata: { locale: 'pt-BR', translatedAt: new Date().toISOString(), source: 'AI_TRANSLATION', quality: 'DRAFT' },
-          metadata: { reviewed: false, translatedBy: 'ai' }
-        }
-      };
-    }
     return JSON.stringify(clone, null, 2);
   }
 
   private extractWeapon(text: string, schema: any, options: NormalizeOptions): string {
     const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
-    const name = lines[0] || 'Longsword';
-    const clone = { ...schema, name };
-    if (options.targetLocale === 'pt-BR') {
-      clone.translations = {
-        'pt-BR': {
-          name: name === 'Longsword' ? 'Espada Longa' : name,
-          description: 'A proficiência com uma Espada Longa permite...',
-          _metadata: { locale: 'pt-BR', translatedAt: new Date().toISOString(), source: 'AI_TRANSLATION', quality: 'DRAFT' },
-          metadata: { reviewed: false, translatedBy: 'ai' }
-        }
-      };
-    }
+    const name = lines[0] || 'Weapon';
+
+    const dmgMatch = text.match(/Damage:\s*([0-9d+\-\s]+(?:[a-zA-Z]+)?)/i);
+    const masteryMatch = text.match(/Mastery:\s*([^\n]+)/i);
+
+    const clone = {
+      ...WEAPON_TEMPLATE,
+      ...schema,
+      name,
+      ...(dmgMatch && { damage: dmgMatch[1].trim() }),
+      ...(masteryMatch && { mastery: masteryMatch[1].trim() })
+    };
+
     return JSON.stringify(clone, null, 2);
   }
 
@@ -223,7 +123,7 @@ export class MockProvider implements NormalizerProvider {
     const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
     const name = lines[0] || 'Unknown Creature';
 
-    // Size & Type & Alignment (skips preceding lore sentences like "Aarakocra aeromancers control...")
+    // Size & Type & Alignment (skips preceding lore sentences)
     let size = 'Medium';
     let type = 'Beast';
     let alignment = 'Unaligned';
@@ -251,7 +151,7 @@ export class MockProvider implements NormalizerProvider {
     const speedMatch = text.match(/Speed:?\s*([^\n]+)/i);
     const speed = speedMatch ? speedMatch[1].trim() : '30 ft.';
 
-    // Abilities (case-insensitive for STR/Str, DEX/Dex, etc.)
+    // Abilities
     const abilities: Record<string, number> = {
       strength: 10,
       dexterity: 10,
@@ -274,9 +174,23 @@ export class MockProvider implements NormalizerProvider {
     const chaMatch = text.match(/\bCHA\b\s*(\d+)/i);
     if (chaMatch) abilities.charisma = parseInt(chaMatch[1], 10);
 
+    // Saving Throws
+    const savesMatch = text.match(/Saving Throws\s*[\n:]?\s*([^\n]+)/i);
+    const savingThrows = savesMatch ? savesMatch[1].split(',').map(s => s.trim()) : [];
+
     // Skills
     const skillsMatch = text.match(/Skills\s*[\n:]?\s*([^\n]+)/i);
     const skills = skillsMatch ? skillsMatch[1].split(',').map(s => s.trim()) : [];
+
+    // Resistances / Immunities
+    const resMatch = text.match(/Damage Resistances\s*[\n:]?\s*([^\n]+)/i);
+    const damageResistances = resMatch ? resMatch[1].trim() : '';
+
+    const immMatch = text.match(/Damage Immunities\s*[\n:]?\s*([^\n]+)/i);
+    const damageImmunities = immMatch ? immMatch[1].trim() : '';
+
+    const condMatch = text.match(/Condition Immunities\s*[\n:]?\s*([^\n]+)/i);
+    const conditionImmunities = condMatch ? condMatch[1].trim() : '';
 
     // Senses
     const sensesMatch = text.match(/Senses\s*[\n:]?\s*([^\n]+)/i);
@@ -290,70 +204,11 @@ export class MockProvider implements NormalizerProvider {
     const crMatch = text.match(/(?:Challenge|CR)\s*[\n:]?\s*(\d+(?:\/\d+)?)/i);
     const challengeRating = crMatch ? crMatch[1] : '1';
 
-    // Actions & Reactions (Cleanly bounded to avoid leaking or cutting off at section headers)
-    const actions: Array<{ name: string; description: string }> = [];
-    const reactions: Array<{ name: string; description: string }> = [];
+    const pbMatch = text.match(/PB\s*\+?(\d+)/i);
+    const proficiencyBonus = pbMatch ? parseInt(pbMatch[1], 10) : 2;
 
-    function parseNamedEntries(sectionContent: string): Array<{ name: string; description: string }> {
-      const items: Array<{ name: string; description: string }> = [];
-      const blocks = sectionContent
-        .split(/(?=\n[A-Z][A-Za-z0-9'\s\(\)\/\-]+?\.\s)/g)
-        .map(b => b.trim())
-        .filter(Boolean);
-
-      for (const block of blocks) {
-        const dotIdx = block.indexOf('.');
-        if (dotIdx > 0) {
-          const actName = block.substring(0, dotIdx).trim();
-          const actDesc = block.substring(dotIdx + 1).trim();
-          if (actName && actDesc) {
-            items.push({ name: actName, description: actDesc });
-          }
-        }
-      }
-      return items;
-    }
-
-    const actionsHeading = text.match(/(?:^|\n)(?:Actions|###\s*Actions|\*\*Actions\*\*)\s*(?:\n|$)/i);
-    const reactionsHeading = text.match(/(?:^|\n)(?:Reactions|###\s*Reactions|\*\*Reactions\*\*)\s*(?:\n|$)/i);
-    const bonusHeading = text.match(/(?:^|\n)(?:Bonus\s+Actions|###\s*Bonus\s+Actions|\*\*Bonus\s+Actions\*\*)\s*(?:\n|$)/i);
-    const legHeading = text.match(/(?:^|\n)(?:Legendary\s+Actions|###\s*Legendary\s+Actions|\*\*Legendary\s+Actions\*\*)\s*(?:\n|$)/i);
-
-    if (actionsHeading) {
-      const actStart = actionsHeading.index! + actionsHeading[0].length;
-      const nextBound = Math.min(
-        bonusHeading && bonusHeading.index! > actStart ? bonusHeading.index! : Infinity,
-        reactionsHeading && reactionsHeading.index! > actStart ? reactionsHeading.index! : Infinity,
-        legHeading && legHeading.index! > actStart ? legHeading.index! : Infinity,
-        text.length
-      );
-      const actRaw = text.substring(actStart, nextBound).trim();
-      actions.push(...parseNamedEntries(actRaw));
-    }
-
-    if (reactionsHeading) {
-      const reactStart = reactionsHeading.index! + reactionsHeading[0].length;
-      const nextBound = Math.min(
-        legHeading && legHeading.index! > reactStart ? legHeading.index! : Infinity,
-        text.length
-      );
-      const reactRaw = text.substring(reactStart, nextBound).trim();
-      reactions.push(...parseNamedEntries(reactRaw));
-    }
-
-    if (actions.length === 0) {
-      actions.push(
-        {
-          name: 'Rend',
-          description:
-            'Melee Attack Roll: +5, reach 5 ft. Hit: 10 (2d6 + 3) Slashing damage. If the target is a Large or smaller creature, it has the Prone condition.'
-        },
-        {
-          name: 'Nimble Escape',
-          description: 'The tiger takes the Disengage or Hide action.'
-        }
-      );
-    }
+    // High precision deterministic section parsing for Traits, Actions, Reactions, Legendary Actions
+    const sections = this.parseMonsterSections(text);
 
     const result: any = {
       ...MONSTER_TEMPLATE,
@@ -365,56 +220,143 @@ export class MockProvider implements NormalizerProvider {
       hitPoints,
       speed,
       abilities,
+      savingThrows,
       skills,
+      damageResistances,
+      damageImmunities,
+      conditionImmunities,
       senses,
       languages,
       challengeRating,
-      actions,
-      reactions
+      proficiencyBonus,
+      traits: sections.traits,
+      actions: sections.actions,
+      bonusActions: sections.bonusActions,
+      reactions: sections.reactions,
+      legendaryActions: sections.legendaryActions
     };
-
-    if (options.targetLocale === 'pt-BR') {
-      result.translations = {
-        'pt-BR': {
-          name: name === 'Tiger' ? 'Tigre' : name,
-          traits: [],
-          type: type === 'Beast' ? 'Besta' : type,
-          alignment: alignment === 'Unaligned' ? 'Não alinhado' : alignment,
-          actions: actions.map(a => ({
-            name: a.name === 'Rend' ? 'Rasgar' : (a.name === 'Nimble Escape' ? 'Fuga Ágil' : a.name),
-            description: a.description
-              .replace(/Melee Attack Roll:/g, 'Jogada de Ataque Corpo a Corpo:')
-              .replace(/reach 5 ft\./g, 'alcance 1,5 m.')
-              .replace(/Hit:/g, 'Acerto:')
-              .replace(/Slashing damage\./g, 'Dano cortante.')
-              .replace(/Slashing damage/g, 'Dano cortante.')
-              .replace(/If the target is a Large or smaller creature, it has the Prone condition\./g, 'Se o alvo for uma criatura Grande ou menor, ele fica Caído.')
-              .replace(/The tiger takes the Disengage or Hide action\./g, 'O tigre realiza a ação Desengajar ou Esconder-se.')
-          })),
-          reactions: [],
-          legendaryActions: [],
-          senses: senses.replace('Darkvision 60 ft.', 'Visão no Escuro 18 metros').replace('Passive Perception', 'Percepção Passiva'),
-          languages: languages === '—' ? '-' : languages,
-          _metadata: {
-            locale: 'pt-BR',
-            translatedAt: new Date().toISOString(),
-            source: 'AI_TRANSLATION',
-            quality: 'DRAFT'
-          },
-          metadata: {
-            reviewed: false,
-            translatedBy: 'ai'
-          }
-        }
-      };
-    }
 
     return JSON.stringify(result, null, 2);
   }
 
+  /**
+   * Deterministic extraction of named monster action/trait sections from raw text
+   */
+  private parseMonsterSections(text: string): {
+    traits: Array<{ name: string; description: string }>;
+    actions: Array<{ name: string; description: string }>;
+    bonusActions: Array<{ name: string; description: string }>;
+    reactions: Array<{ name: string; description: string }>;
+    legendaryActions: Array<{ name: string; description: string }>;
+  } {
+    const raw = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+
+    const headerPatterns = [
+      { type: 'traits', regex: /(?:^|\n)(?:###\s*|\*\*)?(?:Traits|Special\s+Traits)(?:\*\*)?\s*(?:\n|$)/i },
+      { type: 'actions', regex: /(?:^|\n)(?:###\s*|\*\*)?Actions(?:\*\*)?\s*(?:\n|$)/i },
+      { type: 'bonusActions', regex: /(?:^|\n)(?:###\s*|\*\*)?Bonus\s+Actions(?:\*\*)?\s*(?:\n|$)/i },
+      { type: 'reactions', regex: /(?:^|\n)(?:###\s*|\*\*)?Reactions(?:\*\*)?\s*(?:\n|$)/i },
+      { type: 'legendaryActions', regex: /(?:^|\n)(?:###\s*|\*\*)?Legendary\s+Actions(?:\*\*)?\s*(?:\n|$)/i }
+    ];
+
+    const sectionsFound: Array<{ type: string; start: number; headingIndex: number }> = [];
+    for (const hp of headerPatterns) {
+      const match = raw.match(hp.regex);
+      if (match && match.index !== undefined) {
+        sectionsFound.push({
+          type: hp.type,
+          start: match.index + match[0].length,
+          headingIndex: match.index
+        });
+      }
+    }
+
+    sectionsFound.sort((a, b) => a.headingIndex - b.headingIndex);
+
+    const sectionsContent: Record<string, string> = {
+      traits: '',
+      actions: '',
+      bonusActions: '',
+      reactions: '',
+      legendaryActions: ''
+    };
+
+    for (let i = 0; i < sectionsFound.length; i++) {
+      const current = sectionsFound[i];
+      const nextStart = i + 1 < sectionsFound.length ? sectionsFound[i + 1].headingIndex : raw.length;
+      sectionsContent[current.type] = raw.substring(current.start, nextStart).trim();
+    }
+
+    // Trait blocks between CR and the first header if no explicit "Traits" heading
+    if (!sectionsContent.traits && sectionsFound.length > 0) {
+      const firstHeading = sectionsFound[0];
+      const crMatch = raw.match(/(?:Challenge|CR)\s*[\n:]?\s*[^\n]+(?:\n|$)/i);
+      if (crMatch && crMatch.index !== undefined) {
+        const crEnd = crMatch.index + crMatch[0].length;
+        if (crEnd < firstHeading.headingIndex) {
+          const between = raw.substring(crEnd, firstHeading.headingIndex).trim();
+          if (between.length > 0) {
+            sectionsContent.traits = between;
+          }
+        }
+      }
+    }
+
+    return {
+      traits: this.parseEntries(sectionsContent.traits),
+      actions: this.parseEntries(sectionsContent.actions),
+      bonusActions: this.parseEntries(sectionsContent.bonusActions),
+      reactions: this.parseEntries(sectionsContent.reactions),
+      legendaryActions: this.parseEntries(sectionsContent.legendaryActions)
+    };
+  }
+
+  private parseEntries(content: string): Array<{ name: string; description: string }> {
+    if (!content) return [];
+    const entries: Array<{ name: string; description: string }> = [];
+    const lines = content.split('\n');
+    let current: { name: string; description: string } | null = null;
+
+    for (let rawLine of lines) {
+      const line = rawLine.trim();
+      if (!line) continue;
+
+      // Skip generic section intros like "The dragon can take 3 legendary actions..."
+      if (/^the\s+[a-z0-9\s\-]+can\s+take\s+\d+\s+legendary\s+actions/i.test(line)) {
+        continue;
+      }
+
+      // Check for markdown heading: ### Title
+      const hMatch = line.match(/^###\s+([^\n]+)/);
+      if (hMatch) {
+        if (current) entries.push(current);
+        current = { name: hMatch[1].trim(), description: '' };
+        continue;
+      }
+
+      // Check for Title. Description or **Title.** Description or Title (Extra). Description
+      const titleMatch = line.match(/^(?:\*\*)?([A-Z0-9][A-Za-z0-9'\s\(\)\/\-–—]+?)(?:\*\*)?\.\s*(.*)$/);
+      if (titleMatch) {
+        if (current) entries.push(current);
+        current = {
+          name: titleMatch[1].replace(/^\*\*|\*\*$/g, '').trim(),
+          description: titleMatch[2].trim()
+        };
+        continue;
+      }
+
+      // Continuation line for current entry
+      if (current) {
+        current.description = current.description ? current.description + '\n' + line : line;
+      }
+    }
+
+    if (current) entries.push(current);
+    return entries;
+  }
+
   private extractGenericObject(text: string, schema: any, options: NormalizeOptions): string {
     const clone = { ...schema };
-    // Assign text to description or first string property if possible
     for (const key of Object.keys(clone)) {
       if (typeof clone[key] === 'string' && clone[key].length > 10) {
         clone[key] = text.trim();
@@ -425,65 +367,22 @@ export class MockProvider implements NormalizerProvider {
   }
 
   private extractSectionalTraits(text: string): string {
-    const lines = text.split('\n').map(l => l.trim()).filter(l => l && !/^traits$/i.test(l));
-    const traits: Array<{ name: string; description: string }> = [];
-
-    for (const line of lines) {
-      const match = line.match(/^([A-Za-z0-9'\s\(\)\/]+?)\.\s*(.+)$/);
-      if (match) {
-        traits.push({ name: match[1].trim(), description: match[2].trim() });
-      }
-    }
-
+    const traits = this.parseEntries(text);
     return JSON.stringify({ traits }, null, 2);
   }
 
   private extractSectionalActions(text: string): string {
-    const lines = text.split('\n').map(l => l.trim()).filter(l => l && !/^actions$/i.test(l));
-    const actions: Array<{ name: string; description: string }> = [];
-    const reactions: Array<{ name: string; description: string }> = [];
-
-    for (const line of lines) {
-      const match = line.match(/^([A-Za-z0-9'\s\(\)\/\-]+?)\.\s*(.+)$/);
-      if (match) {
-        const name = match[1].trim();
-        const description = match[2].trim();
-        if (/reaction/i.test(name)) {
-          reactions.push({ name, description });
-        } else {
-          actions.push({ name, description });
-        }
-      }
-    }
-
-    return JSON.stringify({ actions, reactions }, null, 2);
+    const actions = this.parseEntries(text);
+    return JSON.stringify({ actions }, null, 2);
   }
 
   private extractSectionalLegendary(text: string): string {
-    const lines = text.split('\n').map(l => l.trim()).filter(l => l && !/^legendary\s+actions$/i.test(l));
-    const legendaryActions: Array<{ name: string; description: string }> = [];
-
-    for (const line of lines) {
-      const match = line.match(/^([A-Za-z0-9'\s\(\)\/\-]+?)\.\s*(.+)$/);
-      if (match) {
-        legendaryActions.push({ name: match[1].trim(), description: match[2].trim() });
-      }
-    }
-
+    const legendaryActions = this.parseEntries(text);
     return JSON.stringify({ legendaryActions }, null, 2);
   }
 
   private extractSectionalReactions(text: string): string {
-    const lines = text.split('\n').map(l => l.trim()).filter(l => l && !/^reactions$/i.test(l));
-    const reactions: Array<{ name: string; description: string }> = [];
-
-    for (const line of lines) {
-      const match = line.match(/^([A-Za-z0-9'\s\(\)\/\-]+?)\.\s*(.+)$/);
-      if (match) {
-        reactions.push({ name: match[1].trim(), description: match[2].trim() });
-      }
-    }
-
+    const reactions = this.parseEntries(text);
     return JSON.stringify({ reactions }, null, 2);
   }
 }

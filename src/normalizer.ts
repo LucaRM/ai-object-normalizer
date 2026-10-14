@@ -122,12 +122,17 @@ export class ObjectNormalizer {
       mongoExtended = ObjectFormatter.toMongoExtended(normalized);
     }
 
+    const isMock =
+      execRes.provider.toLowerCase().includes('mock') ||
+      execRes.provider.toLowerCase().includes('deterministic');
+
     const finalResult: NormalizeResult<T> = {
       success: true,
       data: normalized,
       mongoShell,
       mongoExtended,
       provider: execRes.provider,
+      isMock,
       latencyMs,
       validation,
       relations,
@@ -185,7 +190,8 @@ export class ObjectNormalizer {
           (target === 'groq' && pName.includes('groq')) ||
           (target === 'ollama' && pName.includes('ollama')) ||
           (target === 'openrouter' && pName.includes('openrouter')) ||
-          (target === 'mock' && pName.includes('mock'))
+          (target === 'mock' && (pName.includes('mock') || pName.includes('deterministic'))) ||
+          (target === 'deterministic' && (pName.includes('mock') || pName.includes('deterministic')))
         );
       });
 
@@ -224,6 +230,16 @@ export class ObjectNormalizer {
 
       for (let attempt = 0; attempt < this.providers.length; attempt++) {
         const provider = this.providers[this.currentProviderIndex];
+
+        // Guard: Mock/Deterministic provider is only used in cascade if options.allowMock === true
+        const isMockProvider =
+          provider.name.toLowerCase().includes('mock') ||
+          provider.name.toLowerCase().includes('deterministic');
+        if (isMockProvider && !options.allowMock) {
+          this.currentProviderIndex = (this.currentProviderIndex + 1) % this.providers.length;
+          continue;
+        }
+
         attemptedProviders.push(provider.name);
 
         if (!provider.isAvailable()) {
@@ -426,12 +442,17 @@ export class ObjectNormalizer {
       mongoExtended = ObjectFormatter.toMongoExtended(normalized);
     }
 
+    const isMock =
+      headerRes.provider.toLowerCase().includes('mock') ||
+      headerRes.provider.toLowerCase().includes('deterministic');
+
     return {
       success: true,
       data: normalized,
       mongoShell,
       mongoExtended,
       provider: headerRes.provider,
+      isMock,
       latencyMs,
       validation,
       relations,

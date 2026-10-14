@@ -143,7 +143,9 @@ app.post('/normalize', async (req: Request, res: Response) => {
       ...(req.body.autoSplit !== undefined && { autoSplit: Boolean(req.body.autoSplit) }),
       ...(req.body.chunked !== undefined && { chunked: Boolean(req.body.chunked) }),
       ...(req.body.skipCache !== undefined && { skipCache: Boolean(req.body.skipCache) }),
-      ...(req.body.cacheTtlMs !== undefined && { cacheTtlMs: Number(req.body.cacheTtlMs) })
+      ...(req.body.cacheTtlMs !== undefined && { cacheTtlMs: Number(req.body.cacheTtlMs) }),
+      ...(req.body.allowMock !== undefined && { allowMock: Boolean(req.body.allowMock) }),
+      ...(req.headers['x-allow-mock'] !== undefined && { allowMock: req.headers['x-allow-mock'] === 'true' })
     };
 
     // Header overrides for custom API keys if provided per-request
@@ -249,6 +251,7 @@ app.post('/normalize/batch', async (req: Request, res: Response) => {
         const itemOptions: NormalizeOptions = {
           ...options,
           ...item.options,
+          ...(req.body.allowMock !== undefined && { allowMock: Boolean(req.body.allowMock) }),
           defaults: { ...defaults, ...(options.defaults || {}), ...(item.options?.defaults || {}) }
         };
         const result = await normalizer.normalize(item.text, item.schema, itemOptions);

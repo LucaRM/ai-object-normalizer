@@ -89,6 +89,13 @@ export interface NormalizeOptions {
    * Optional custom property check rules to execute
    */
   customChecks?: CustomCheckRule[];
+
+  /**
+   * If false (default), the cascade will never silently fall back to synthetic Mock data.
+   * If all AI providers fail or are rate-limited, an error is returned.
+   * Set to true to allow offline rule-based deterministic fallback.
+   */
+  allowMock?: boolean;
 }
 
 export interface CustomCheckRule {
@@ -138,6 +145,7 @@ export interface NormalizeResult<T = any> {
   chunked?: boolean;
   chunksProcessed?: string[];
   usedFallback?: boolean;
+  isMock?: boolean;
   attemptedProviders?: string[];
 }
 
