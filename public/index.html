@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Object Normalizer - AI Schema Extractor & Validator</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&family=Outfit:wght@500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="app-container">
+    <!-- Header -->
+    <header class="app-header">
+      <div class="header-brand">
+        <div class="brand-icon">⚡</div>
+        <div class="brand-text">
+          <h1>Object Normalizer</h1>
+          <span class="brand-tagline">AI-Powered Cascading Extraction & Property Validation</span>
+        </div>
+      </div>
+      <div class="header-status">
+        <div class="status-indicator">
+          <span class="status-dot"></span>
+          <span id="service-status">Connected</span>
+        </div>
+        <div class="providers-pill" id="providers-summary" title="Active Cascading Providers">
+          <span class="pill-label">Cascade:</span>
+          <span class="pill-value" id="active-providers-count">Loading...</span>
+        </div>
+        <a href="#api-docs" class="header-btn" id="docs-btn">API Docs</a>
+      </div>
+    </header>
+
+    <!-- Main Workspace -->
+    <main class="app-main">
+      <!-- Left Column: Input & Configuration -->
+      <section class="panel input-panel">
+        <div class="panel-header">
+          <h2>Input & Schema</h2>
+          <div class="quick-examples">
+            <span class="examples-label">Presets:</span>
+            <button type="button" class="preset-btn active" data-preset="monster">Tiger</button>
+            <button type="button" class="preset-btn" data-preset="magical-item">Flame Tongue</button>
+            <button type="button" class="preset-btn" data-preset="species">Elf</button>
+            <button type="button" class="preset-btn" data-preset="class">Fighter</button>
+            <button type="button" class="preset-btn" data-preset="subclass">Champion</button>
+            <button type="button" class="preset-btn" data-preset="feat">GWM Feat</button>
+            <button type="button" class="preset-btn" data-preset="background">Soldier</button>
+            <button type="button" class="preset-btn" data-preset="weapon">Longsword</button>
+            <button type="button" class="preset-btn" data-preset="spell">Fireball</button>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <div class="label-row">
+            <label for="template-select">Target Model / Schema</label>
+            <span class="helper-text" id="schema-type-hint">5e Monster Model</span>
+          </div>
+          <select id="template-select" class="custom-select">
+            <optgroup label="Creatures">
+              <option value="monster" selected>Monster (D&D 5e Stat Block)</option>
+            </optgroup>
+            <optgroup label="Equipment">
+              <option value="magical-item">Magical Item (Wondrous, Weapon, Armor)</option>
+              <option value="weapon">Weapon (Properties, 2024 Masteries)</option>
+              <option value="item">Item (Gear & Equipment)</option>
+            </optgroup>
+            <optgroup label="Character Options">
+              <option value="species">Species / Race (Traits, Senses, Speed)</option>
+              <option value="class">Class (Progression, Hit Die, Proficiencies)</option>
+              <option value="subclass">Subclass (Archetype Features by Level)</option>
+              <option value="feat">Feat (Origin, General, Epic Boon)</option>
+              <option value="background">Background (Origin Feat, Proficiencies)</option>
+            </optgroup>
+            <optgroup label="Magic">
+              <option value="spell">Spell (Level, School, Casting Time)</option>
+            </optgroup>
+            <optgroup label="Custom">
+              <option value="custom">Custom Schema JSON</option>
+            </optgroup>
+          </select>
+        </div>
+
+        <!-- Custom Schema Editor (Hidden by default) -->
+        <div class="form-group custom-schema-container" id="custom-schema-group" style="display: none;">
+          <div class="label-row">
+            <label for="custom-schema-input">Custom Target Schema (JSON Template)</label>
+          </div>
+          <textarea id="custom-schema-input" class="code-editor" rows="6" placeholder="Enter target schema JSON object..."></textarea>
+        </div>
+
+        <div class="form-group">
+          <div class="label-row">
+            <label for="raw-text-input">Raw Text / Paragraph</label>
+            <div class="input-actions-inline">
+              <button type="button" class="btn-xs" id="btn-clean-noise" title="Strip Markdown URLs and quotes">🧹 Clean Links</button>
+              <button type="button" class="btn-xs" id="btn-preview-split" title="Detect and preview multiple entities">🔍 Detect Entities</button>
+              <span class="char-count" id="raw-char-count">0 chars</span>
+            </div>
+          </div>
+          <textarea id="raw-text-input" class="text-editor" rows="12" placeholder="Paste unstructured stat block, paragraph, or raw entity text here..."></textarea>
+        </div>
+
+        <!-- Cascading & Execution Settings -->
+        <div class="settings-card">
+          <div class="settings-title">Cascading & Normalization Options</div>
+          <div class="settings-grid">
+            <div class="setting-item">
+              <label for="target-locale">Embedded Translation</label>
+              <select id="target-locale" class="custom-select-sm">
+                <option value="pt-BR">pt-BR (Portuguese)</option>
+                <option value="es">es (Spanish)</option>
+                <option value="fr">fr (French)</option>
+                <option value="none">None (Source only)</option>
+              </select>
+            </div>
+
+            <div class="setting-item">
+              <label for="provider-select">Provider Strategy</label>
+              <select id="provider-select" class="custom-select-sm">
+                <option value="cascade">⚡ Automatic Cascade (Gemini → Groq → Free AI → Mock)</option>
+                <option value="pollinations">Free True LLM (Pollinations - No Key Needed)</option>
+                <option value="gemini">Gemini Only (Google AI Studio Free Tier)</option>
+                <option value="groq">Groq Only (Fast Free LLaMA 3.3)</option>
+                <option value="openrouter">OpenRouter Free Models</option>
+                <option value="ollama">Ollama (Local Offline LLM)</option>
+                <option value="openai">OpenAI Only</option>
+                <option value="anthropic">Anthropic Only</option>
+                <option value="mock">Mock / Heuristic Only</option>
+              </select>
+            </div>
+
+            <div class="setting-item">
+              <label for="book-id-input">Book ObjectId Reference</label>
+              <input type="text" id="book-id-input" class="custom-input-sm" value="68e065e63483269c7c88180d" placeholder="24-hex Mongo ObjectId">
+            </div>
+
+            <div class="setting-item">
+              <label for="output-format">Primary Output View</label>
+              <select id="output-format" class="custom-select-sm">
+                <option value="mongo-shell">Mongo Shell (ObjectId, NumberInt, ISODate)</option>
+                <option value="json">Clean Standard JSON</option>
+                <option value="mongo-extended">MongoDB Extended JSON</option>
+              </select>
+            </div>
+
+            <div class="setting-item checkbox-item" style="grid-column: span 2;">
+              <label class="checkbox-label" title="Automatically detect and normalize multiple monsters or entities pasted together">
+                <input type="checkbox" id="chk-auto-split" checked>
+                <span><strong>Auto-Split Multi-Entity Pastes</strong> (e.g. Ankheg + Animated Armor in one go)</span>
+              </label>
+            </div>
+
+            <div class="setting-item checkbox-item" style="grid-column: span 2;">
+              <label class="checkbox-label" title="Break huge stat blocks into semantic sections (Header, Traits, Actions, Legendary Actions) to avoid AI token limits">
+                <input type="checkbox" id="chk-chunked" checked>
+                <span><strong>Multi-Pass Chunking</strong> (Auto-break complex monsters into parts to prevent token limits)</span>
+              </label>
+            </div>
+          </div>
+        </div>
+
+        <div class="actions-row">
+          <button type="button" class="btn-primary" id="btn-normalize">
+            <span class="btn-icon">⚡</span>
+            <span class="btn-text">Normalize Object</span>
+          </button>
+          <button type="button" class="btn-secondary" id="btn-validate-only" title="Validate existing output without calling AI">
+            Verify Checks
+          </button>
+        </div>
+      </section>
+
+      <!-- Right Column: Normalized Output & Property Checks -->
+      <section class="panel output-panel">
+        <div class="panel-header">
+          <h2>Normalized Entity</h2>
+          <div class="execution-badge" id="execution-meta" style="display: none;">
+            <span class="provider-tag" id="meta-provider">Provider</span>
+            <span class="latency-tag" id="meta-latency">0ms</span>
+          </div>
+        </div>
+
+        <!-- Multi-Entity Selector (Shows when multiple creatures were extracted) -->
+        <div class="multi-entity-selector" id="multi-entity-selector" style="display: none;">
+          <span class="selector-label">Extracted (<span id="multi-entity-count">0</span>):</span>
+          <div class="entity-pills" id="entity-pills-container"></div>
+        </div>
+
+        <!-- Property Verification Dashboard -->
+        <div class="validation-summary-card" id="validation-card">
+          <div class="validation-status-header">
+            <div class="badge-status" id="badge-validity">
+              <span class="indicator-icon">✓</span>
+              <span id="validity-label">Awaiting Normalization</span>
+            </div>
+            <div class="metrics-row">
+              <span class="metric-item" id="metric-checks">0 Checks Run</span>
+              <span class="metric-divider">•</span>
+              <span class="metric-item" id="metric-coerced">0 Coerced</span>
+            </div>
+          </div>
+          <div class="diagnostics-drawer" id="diagnostics-drawer" style="display: none;">
+            <div class="diagnostic-group" id="coerced-group"></div>
+            <div class="diagnostic-group" id="warnings-group"></div>
+          </div>
+        </div>
+
+        <!-- Tabs -->
+        <div class="tabs-bar">
+          <button type="button" class="tab-btn active" data-tab="tab-mongo-shell">Mongo Shell</button>
+          <button type="button" class="tab-btn" data-tab="tab-json">Clean JSON</button>
+          <button type="button" class="tab-btn" data-tab="tab-extended">Mongo Extended</button>
+          <button type="button" class="tab-btn" data-tab="tab-relations">Relations (<span id="rel-count">0</span>)</button>
+          <button type="button" class="tab-btn" data-tab="tab-schema">Target Schema</button>
+          <div class="tab-actions">
+            <button type="button" class="icon-action-btn" id="btn-copy" title="Copy to Clipboard">
+              📋 Copy
+            </button>
+            <button type="button" class="icon-action-btn" id="btn-download" title="Download JSON">
+              💾 Export
+            </button>
+          </div>
+        </div>
+
+        <!-- Code Viewer -->
+        <div class="viewer-container">
+          <pre id="output-display" class="code-view"><code class="hljs">Click "Normalize Object" to convert the raw paragraph into the target model schema...</code></pre>
+        </div>
+      </section>
+    </main>
+
+    <!-- API Reference Drawer / Modal -->
+    <div class="modal-backdrop" id="docs-modal" style="display: none;">
+      <div class="modal-box">
+        <div class="modal-header">
+          <h3>REST API Usage Reference</h3>
+          <button type="button" class="close-btn" id="close-docs-btn">✕</button>
+        </div>
+        <div class="modal-body">
+          <p class="modal-desc">You can call this API directly in your backend cascade pipeline (e.g. from <code>luca-app</code> or background workers):</p>
+          <div class="endpoint-block">
+            <div class="endpoint-pill"><span class="method post">POST</span> <code>/normalize</code></div>
+            <pre class="api-code-sample">curl -X POST http://localhost:3009/normalize \
+  -H "Content-Type: application/json" \
+  -d '{
+    "template": "monster",
+    "text": "Tiger\nLarge Beast, Unaligned\nArmor Class 13...",
+    "autoSplit": true,
+    "options": {
+      "targetLocale": "pt-BR",
+      "format": "all"
+    }
+  }'</pre>
+          </div>
+          <div class="endpoint-block">
+            <div class="endpoint-pill"><span class="method post">POST</span> <code>/preprocess</code></div>
+            <pre class="api-code-sample">curl -X POST http://localhost:3009/preprocess \
+  -H "Content-Type: application/json" \
+  -d '{
+    "text": "[Ankheg](url)\nLarge Monstrosity...\n\n[Animated Armor](url)..."
+  }'
+// Returns: { count: 2, entities: [ { name: "Ankheg", ... }, ... ] }</pre>
+          </div>
+          <div class="endpoint-block">
+            <div class="endpoint-pill"><span class="method post">POST</span> <code>/normalize/batch</code></div>
+            <pre class="api-code-sample">curl -X POST http://localhost:3009/normalize/batch \
+  -H "Content-Type: application/json" \
+  -d '{
+    "items": [
+      { "template": "monster", "text": "Tiger...", "options": { "targetLocale": "pt-BR" } },
+      { "template": "monster", "text": "Lion...", "options": { "targetLocale": "pt-BR" } }
+    ]
+  }'</pre>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,42 @@
+{
+  "name": "object-normalizer",
+  "version": "1.0.0",
+  "description": "AI-powered structured object normalization and extraction with cascading provider failover, property checks, and MongoDB formatting",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/server.js",
+    "dev": "tsc && node dist/server.js",
+    "test": "node -e \"console.log('Testing build...')\" && npm run build"
+  },
+  "keywords": [
+    "ai",
+    "normalizer",
+    "object-normalizer",
+    "mongodb",
+    "extraction",
+    "cascading",
+    "dnd5e",
+    "rpg",
+    "gemini",
+    "openai",
+    "groq",
+    "claude"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "axios": "^1.6.0",
+    "cors": "^2.8.5",
+    "dotenv": "^16.3.1",
+    "express": "^4.18.2"
+  },
+  "devDependencies": {
+    "@types/cors": "^2.8.17",
+    "@types/express": "^4.17.21",
+    "@types/node": "^20.0.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.3.0"
+  }
+}
