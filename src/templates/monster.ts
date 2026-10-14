@@ -47,38 +47,7 @@ export const MONSTER_TEMPLATE = {
   updatedBy: 'system',
   updatedAt: '2025-11-09T00:23:59.276Z',
   createdAt: '2025-10-14T18:17:12.021Z',
-  translations: {
-    'pt-BR': {
-      name: 'Tigre',
-      traits: [],
-      type: 'Besta',
-      alignment: 'Não alinhado',
-      actions: [
-        {
-          name: 'Rasgar',
-          description: 'Jogada de Ataque Corpo a Corpo: +5, alcance 1,5 m. Acerto: 10 (2d6 + 3) Dano cortante. Se o alvo for uma criatura Grande ou menor, ele fica Caído.'
-        },
-        {
-          name: 'Fuga Ágil',
-          description: 'O tigre realiza a ação Desengajar ou Esconder-se.'
-        }
-      ],
-      reactions: [],
-      legendaryActions: [],
-      senses: 'Visão no Escuro 18 metros, Percepção Passiva 13',
-      languages: '—',
-      _metadata: {
-        locale: 'pt-BR',
-        translatedAt: '2025-10-17T00:56:24.243Z',
-        source: 'AI_TRANSLATION',
-        quality: 'DRAFT'
-      },
-      metadata: {
-        reviewed: false,
-        translatedBy: 'ai'
-      }
-    }
-  }
+  translations: {}
 };
 
 export const MONSTER_PROMPT_GUIDE = `### SPECIAL INSTRUCTIONS FOR D&D 5E MONSTERS (2024 & 2014):

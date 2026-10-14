@@ -53,6 +53,17 @@ export class FreeTranslator {
 
     // 2. Try MyMemory Free API (zero-signup, zero-key)
     try {
+      // If query is longer than 450 chars, split into sentences to respect MyMemory 500-char limit
+      if (trimmed.length > 450) {
+        const sentences = trimmed.match(/[^.!?]+[.!?]+|[^.!?]+$/g) || [trimmed];
+        const translatedParts = await Promise.all(
+          sentences.map(s => this.translateText(s.trim(), targetLocale, sourceLocale))
+        );
+        const combined = translatedParts.join(' ').trim();
+        this.memoryCache.set(cacheKey, combined);
+        return combined;
+      }
+
       const langpair = `${sourceLocale}|${targetLocale}`;
       const res = await axios.get('https://api.mymemory.translated.net/get', {
         params: {
@@ -64,7 +75,13 @@ export class FreeTranslator {
       });
 
       const translated = res.data?.responseData?.translatedText;
-      if (translated && typeof translated === 'string' && !translated.includes('MYMEMORY WARNING')) {
+      if (
+        translated &&
+        typeof translated === 'string' &&
+        !translated.includes('MYMEMORY WARNING') &&
+        !translated.includes('QUERY LENGTH LIMIT EXCEEDED') &&
+        !translated.includes('INVALID USER KEY')
+      ) {
         const result = translated.trim();
         this.memoryCache.set(cacheKey, result);
         return result;
@@ -94,23 +111,28 @@ export class FreeTranslator {
 
     const loc = entity.translations[targetLocale];
 
-    // Translate name if identical or missing
-    if (!loc.name || loc.name === entity.name) {
+    // Always translate name for entity
+    if (entity.name) {
       loc.name = await this.translateText(entity.name, targetLocale);
     }
 
-    // Translate type if identical or missing
-    if (entity.type && (!loc.type || loc.type === entity.type)) {
+    // Translate type
+    if (entity.type) {
       loc.type = await this.translateText(entity.type, targetLocale);
     }
 
+    // Translate alignment
+    if (entity.alignment) {
+      loc.alignment = await this.translateText(entity.alignment, targetLocale);
+    }
+
     // Translate description
-    if (entity.description && (!loc.description || loc.description === entity.description)) {
+    if (entity.description) {
       loc.description = await this.translateText(entity.description, targetLocale);
     }
 
     // Translate traits array
-    if (Array.isArray(entity.traits) && (!loc.traits || loc.traits.length === 0)) {
+    if (Array.isArray(entity.traits)) {
       loc.traits = await Promise.all(
         entity.traits.map(async (t: any) => ({
           name: t.name ? await this.translateText(t.name, targetLocale) : '',
@@ -120,7 +142,7 @@ export class FreeTranslator {
     }
 
     // Translate actions array
-    if (Array.isArray(entity.actions) && (!loc.actions || loc.actions.length === 0)) {
+    if (Array.isArray(entity.actions)) {
       loc.actions = await Promise.all(
         entity.actions.map(async (a: any) => ({
           name: a.name ? await this.translateText(a.name, targetLocale) : '',
@@ -129,8 +151,18 @@ export class FreeTranslator {
       );
     }
 
+    // Translate bonus actions array
+    if (Array.isArray(entity.bonusActions)) {
+      loc.bonusActions = await Promise.all(
+        entity.bonusActions.map(async (b: any) => ({
+          name: b.name ? await this.translateText(b.name, targetLocale) : '',
+          description: b.description ? await this.translateText(b.description, targetLocale) : ''
+        }))
+      );
+    }
+
     // Translate reactions array
-    if (Array.isArray(entity.reactions) && (!loc.reactions || loc.reactions.length === 0)) {
+    if (Array.isArray(entity.reactions)) {
       loc.reactions = await Promise.all(
         entity.reactions.map(async (r: any) => ({
           name: r.name ? await this.translateText(r.name, targetLocale) : '',
@@ -140,7 +172,7 @@ export class FreeTranslator {
     }
 
     // Translate legendary actions array
-    if (Array.isArray(entity.legendaryActions) && (!loc.legendaryActions || loc.legendaryActions.length === 0)) {
+    if (Array.isArray(entity.legendaryActions)) {
       loc.legendaryActions = await Promise.all(
         entity.legendaryActions.map(async (l: any) => ({
           name: l.name ? await this.translateText(l.name, targetLocale) : '',

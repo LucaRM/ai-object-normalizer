@@ -28,6 +28,9 @@ export class MockProvider implements NormalizerProvider {
     if (schema && schema.reactions !== undefined && schema.actions === undefined && schema.armorClass === undefined) {
       return this.extractSectionalReactions(text);
     }
+    if (schema && schema.bonusActions !== undefined && schema.actions === undefined && schema.armorClass === undefined) {
+      return this.extractSectionalBonusActions(text);
+    }
     if (schema && (schema.actions !== undefined || schema.reactions !== undefined) && schema.armorClass === undefined) {
       return this.extractSectionalActions(text);
     }
@@ -205,15 +208,37 @@ export class MockProvider implements NormalizerProvider {
     const skillsMatch = cleaned.match(/Skills\s*[\n:]?\s*([^\n]+)/i);
     const skills = skillsMatch ? skillsMatch[1].split(',').map(s => s.trim()) : [];
 
-    // Resistances / Immunities
-    const resMatch = cleaned.match(/Damage Resistances\s*[\n:]?\s*([^\n]+)/i);
+    // Resistances / Immunities (Supports 2014 & 2024 D&D Beyond formats)
+    const resMatch = cleaned.match(/(?:Damage\s+Resistances|Resistances)\s*[\n:]?\s*([^\n;]+)/i);
     const damageResistances = resMatch ? resMatch[1].trim() : '';
 
-    const immMatch = cleaned.match(/Damage Immunities\s*[\n:]?\s*([^\n]+)/i);
-    const damageImmunities = immMatch ? immMatch[1].trim() : '';
+    let damageImmunities = '';
+    let conditionImmunities = '';
 
-    const condMatch = cleaned.match(/Condition Immunities\s*[\n:]?\s*([^\n]+)/i);
-    const conditionImmunities = condMatch ? condMatch[1].trim() : '';
+    const dmgImmMatch = cleaned.match(/Damage\s+Immunities\s*[\n:]?\s*([^\n;]+)/i);
+    if (dmgImmMatch) damageImmunities = dmgImmMatch[1].trim();
+
+    const condImmMatch = cleaned.match(/Condition\s+Immunities\s*[\n:]?\s*([^\n]+)/i);
+    if (condImmMatch) conditionImmunities = condImmMatch[1].trim();
+
+    const unifiedImmMatch = cleaned.match(/(?:^|\n)Immunities\s*[\n:]?\s*([^\n]+)/i);
+    if (unifiedImmMatch) {
+      const fullImmText = unifiedImmMatch[1].trim();
+      if (fullImmText.includes(';')) {
+        const parts = fullImmText.split(';').map(p => p.trim());
+        damageImmunities = damageImmunities || parts[0];
+        conditionImmunities = conditionImmunities || parts[1];
+      } else {
+        const conditionsList = ['blinded', 'charmed', 'deafened', 'exhaustion', 'frightened', 'grappled', 'incapacitated', 'invisible', 'paralyzed', 'petrified', 'poisoned', 'prone', 'restrained', 'stunned', 'unconscious'];
+        const items = fullImmText.split(',').map(s => s.trim().toLowerCase());
+        const hasCondition = items.some(it => conditionsList.includes(it));
+        if (hasCondition) {
+          conditionImmunities = conditionImmunities || fullImmText;
+        } else {
+          damageImmunities = damageImmunities || fullImmText;
+        }
+      }
+    }
 
     // Senses
     const sensesMatch = cleaned.match(/Senses\s*[\n:]?\s*([^\n]+)/i);
@@ -256,7 +281,8 @@ export class MockProvider implements NormalizerProvider {
       actions: sections.actions,
       bonusActions: sections.bonusActions,
       reactions: sections.reactions,
-      legendaryActions: sections.legendaryActions
+      legendaryActions: sections.legendaryActions,
+      translations: {}
     };
 
     return JSON.stringify(result, null, 2);
@@ -275,11 +301,11 @@ export class MockProvider implements NormalizerProvider {
     const raw = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
 
     const headerPatterns = [
-      { type: 'traits', regex: /(?:^|\n)(?:###\s*|\*\*)?(?:Traits|Special\s+Traits)(?:\*\*)?\s*(?:\n|$)/i },
-      { type: 'actions', regex: /(?:^|\n)(?:###\s*|\*\*)?Actions(?:\*\*)?\s*(?:\n|$)/i },
-      { type: 'bonusActions', regex: /(?:^|\n)(?:###\s*|\*\*)?Bonus\s+Actions(?:\*\*)?\s*(?:\n|$)/i },
-      { type: 'reactions', regex: /(?:^|\n)(?:###\s*|\*\*)?Reactions(?:\*\*)?\s*(?:\n|$)/i },
-      { type: 'legendaryActions', regex: /(?:^|\n)(?:###\s*|\*\*)?Legendary\s+Actions(?:\*\*)?\s*(?:\n|$)/i }
+      { type: 'traits', regex: /(?:^|\n)\s*(?:#{1,6}\s*)?(?:\*\*)?(?:Traits|Special\s+Traits):?(?:\*\*)?\s*(?:\n|$)/i },
+      { type: 'actions', regex: /(?:^|\n)\s*(?:#{1,6}\s*)?(?:\*\*)?Actions?:?(?:\*\*)?\s*(?:\n|$)/i },
+      { type: 'bonusActions', regex: /(?:^|\n)\s*(?:#{1,6}\s*)?(?:\*\*)?Bonus\s+Actions?:?(?:\*\*)?\s*(?:\n|$)/i },
+      { type: 'reactions', regex: /(?:^|\n)\s*(?:#{1,6}\s*)?(?:\*\*)?Reactions?:?(?:\*\*)?\s*(?:\n|$)/i },
+      { type: 'legendaryActions', regex: /(?:^|\n)\s*(?:#{1,6}\s*)?(?:\*\*)?Legendary\s+Actions?:?(?:\*\*)?\s*(?:\n|$)/i }
     ];
 
     const sectionsFound: Array<{ type: string; start: number; headingIndex: number }> = [];
@@ -349,8 +375,11 @@ export class MockProvider implements NormalizerProvider {
         break;
       }
 
-      // Skip generic section intros like "The dragon can take 3 legendary actions..."
+      // Skip generic section intros like "The dragon can take 3 legendary actions..." or "Legendary Action Uses: 3"
       if (/^the\s+[a-z0-9\s\-]+can\s+take\s+\d+\s+legendary\s+actions/i.test(line)) {
+        continue;
+      }
+      if (/^legendary\s+action\s+uses:/i.test(line)) {
         continue;
       }
 
@@ -363,12 +392,13 @@ export class MockProvider implements NormalizerProvider {
       }
 
       // Check for Title. Description or **Title.** Description or Title (Extra). Description
-      const titleMatch = line.match(/^(?:\*\*)?([A-Z0-9][A-Za-z0-9'\s\(\)\/\-–—]+?)(?:\*\*)?\.\s+(.+)$/);
+      const titleMatch = line.match(/^(?:\*\*)?([A-Z0-9][A-Za-z0-9',:\s\(\)\/\-–—]+?)(?:\*\*)?\.\s+(.+)$/);
       if (titleMatch) {
         const potentialName = titleMatch[1].replace(/^\*\*|\*\*$/g, '').trim();
+        const nameWithoutParens = potentialName.replace(/\([^)]*\)/g, '').trim();
         if (
-          potentialName.length <= 45 &&
-          !/[,;!?]/.test(potentialName) &&
+          potentialName.length <= 60 &&
+          !/[,;!?]/.test(nameWithoutParens) &&
           !/^(?:Speed|AC|HP|Ability|Score|Mod|Save|Str|Dex|Con|Int|Wis|Cha|The|Such|These|Those|When|If|After|Failure|Success|Trigger|Response)\b/i.test(potentialName)
         ) {
           if (current) entries.push(current);
@@ -407,8 +437,21 @@ export class MockProvider implements NormalizerProvider {
   }
 
   private extractSectionalActions(text: string): string {
+    const sections = this.parseMonsterSections(text);
+    if (sections.bonusActions.length > 0 || sections.reactions.length > 0) {
+      return JSON.stringify({
+        actions: sections.actions,
+        bonusActions: sections.bonusActions,
+        reactions: sections.reactions
+      }, null, 2);
+    }
     const actions = this.parseEntries(text);
     return JSON.stringify({ actions }, null, 2);
+  }
+
+  private extractSectionalBonusActions(text: string): string {
+    const bonusActions = this.parseEntries(text);
+    return JSON.stringify({ bonusActions }, null, 2);
   }
 
   private extractSectionalLegendary(text: string): string {

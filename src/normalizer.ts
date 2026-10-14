@@ -363,7 +363,7 @@ export class ObjectNormalizer {
       chunksProcessed.push('traits');
     }
 
-    // 3. Actions & Reactions (if present)
+    // 3. Actions (if present)
     if (sections.actions) {
       console.log(`  [Chunk 3/4] Normalizing Combat Actions (${sections.actions.length} chars)...`);
       const actionsSchema = {
@@ -380,6 +380,22 @@ export class ObjectNormalizer {
       });
       partialResults.actions = actionsRes.data;
       chunksProcessed.push('actions');
+    }
+
+    // 3.25 Bonus Actions (if present)
+    if (sections.bonusActions) {
+      console.log(`  [Chunk Bonus Actions] Normalizing Bonus Actions (${sections.bonusActions.length} chars)...`);
+      const bonusSchema = {
+        bonusActions: [
+          { name: 'Bonus Action Name', description: 'Bonus action effect and description...' }
+        ]
+      };
+      const bonusRes = await this.executeSingleNormalization(sections.bonusActions, bonusSchema, {
+        ...options,
+        skipCache: true
+      });
+      partialResults.bonusActions = bonusRes.data;
+      chunksProcessed.push('bonusActions');
     }
 
     // 3.5 Standalone Reactions section (if present)

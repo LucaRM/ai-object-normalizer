@@ -19,6 +19,7 @@ export class EntityMerger {
     // Initialize arrays if missing
     merged.traits = Array.isArray(merged.traits) ? [...merged.traits] : [];
     merged.actions = Array.isArray(merged.actions) ? [...merged.actions] : [];
+    merged.bonusActions = Array.isArray(merged.bonusActions) ? [...merged.bonusActions] : [];
     merged.reactions = Array.isArray(merged.reactions) ? [...merged.reactions] : [];
     merged.legendaryActions = Array.isArray(merged.legendaryActions) ? [...merged.legendaryActions] : [];
 
@@ -54,14 +55,14 @@ export class EntityMerger {
         mergeUniqueByName(merged.reactions, parts.actions.reactions);
       }
       if (parts.actions.bonusActions && Array.isArray(parts.actions.bonusActions)) {
-        // Tag bonus actions or append to actions with Bonus Action tag
-        for (const ba of parts.actions.bonusActions) {
-          if (!ba.name.includes('(Bonus Action)')) {
-            ba.name = `${ba.name} (Bonus Action)`;
-          }
-          merged.actions.push(ba);
-        }
+        mergeUniqueByName(merged.bonusActions, parts.actions.bonusActions);
       }
+    }
+
+    // 2.25 Merge Standalone Bonus Actions section
+    if ((parts as any).bonusActions) {
+      const bonusList = (parts as any).bonusActions.bonusActions || (Array.isArray((parts as any).bonusActions) ? (parts as any).bonusActions : []);
+      mergeUniqueByName(merged.bonusActions, bonusList);
     }
 
     // 2.5 Merge Standalone Reactions section
@@ -97,6 +98,10 @@ export class EntityMerger {
           targetTrans.actions = targetTrans.actions || [];
           mergeUniqueByName(targetTrans.actions, trans.actions);
         }
+        if (trans.bonusActions) {
+          targetTrans.bonusActions = targetTrans.bonusActions || [];
+          mergeUniqueByName(targetTrans.bonusActions, trans.bonusActions);
+        }
         if (trans.reactions) {
           targetTrans.reactions = targetTrans.reactions || [];
           mergeUniqueByName(targetTrans.reactions, trans.reactions);
@@ -110,6 +115,8 @@ export class EntityMerger {
 
     mergeSectionTranslations(parts.traits);
     mergeSectionTranslations(parts.actions);
+    mergeSectionTranslations((parts as any).bonusActions);
+    mergeSectionTranslations(parts.reactions);
     mergeSectionTranslations(parts.legendary);
 
     return merged;

@@ -7,6 +7,7 @@ export interface MonsterSections {
   header: string;
   traits?: string;
   actions?: string;
+  bonusActions?: string;
   reactions?: string;
   legendary?: string;
 }
@@ -16,106 +17,49 @@ export class EntitySectioner {
    * Slices a monster stat block into semantic sections:
    * 1. header (core stats, AC, HP, abilities, saves, skills, senses, CR)
    * 2. traits (passive abilities, innate spellcasting)
-   * 3. actions (attacks, multiattack, bonus actions)
-   * 4. reactions (reaction triggers and effects)
-   * 5. legendary (legendary actions, lair actions)
+   * 3. actions (attacks, multiattack)
+   * 4. bonusActions (bonus actions)
+   * 5. reactions (reaction triggers and effects)
+   * 6. legendary (legendary actions, lair actions)
    */
   static splitMonster(rawText: string): MonsterSections {
     const text = rawText.trim();
 
     // Markers for section headings
-    const actionsMarker = /(?:^|\n)(?:Actions|###\s*Actions|\*\*Actions\*\*)(?:\n|$)/i;
-    const bonusActionsMarker = /(?:^|\n)(?:Bonus\s+Actions|###\s*Bonus\s+Actions|\*\*Bonus\s+Actions\*\*)(?:\n|$)/i;
-    const reactionsMarker = /(?:^|\n)(?:Reactions|###\s*Reactions|\*\*Reactions\*\*)(?:\n|$)/i;
-    const legendaryMarker = /(?:^|\n)(?:Legendary\s+Actions|###\s*Legendary\s+Actions|\*\*Legendary\s+Actions\*\*|Mythic\s+Actions)(?:\n|$)/i;
-    const traitsMarker = /(?:^|\n)(?:Traits|###\s*Traits|\*\*Traits\*\*|Special\s+Traits)(?:\n|$)/i;
+    const traitsMarker = /(?:^|\n)\s*(?:#{1,6}\s*)?(?:\*\*)?(?:Traits|Special\s+Traits):?(?:\*\*)?\s*(?:\n|$)/i;
+    const actionsMarker = /(?:^|\n)\s*(?:#{1,6}\s*)?(?:\*\*)?Actions?:?(?:\*\*)?\s*(?:\n|$)/i;
+    const bonusActionsMarker = /(?:^|\n)\s*(?:#{1,6}\s*)?(?:\*\*)?Bonus\s+Actions?:?(?:\*\*)?\s*(?:\n|$)/i;
+    const reactionsMarker = /(?:^|\n)\s*(?:#{1,6}\s*)?(?:\*\*)?Reactions?:?(?:\*\*)?\s*(?:\n|$)/i;
+    const legendaryMarker = /(?:^|\n)\s*(?:#{1,6}\s*)?(?:\*\*)?(?:Legendary\s+Actions?|Mythic\s+Actions?):?(?:\*\*)?\s*(?:\n|$)/i;
 
-    // Find indices
-    const traitsMatch = traitsMarker.exec(text);
-    const actionsMatch = actionsMarker.exec(text);
-    const bonusMatch = bonusActionsMarker.exec(text);
-    const reactionsMatch = reactionsMarker.exec(text);
-    const legendaryMatch = legendaryMarker.exec(text);
+    const markers = [
+      { type: 'traits' as const, match: traitsMarker.exec(text) },
+      { type: 'actions' as const, match: actionsMarker.exec(text) },
+      { type: 'bonusActions' as const, match: bonusActionsMarker.exec(text) },
+      { type: 'reactions' as const, match: reactionsMarker.exec(text) },
+      { type: 'legendary' as const, match: legendaryMarker.exec(text) }
+    ].filter((m): m is { type: keyof Omit<MonsterSections, 'header'>; match: RegExpExecArray } => m.match !== null);
 
-    // If no distinct action markers found, return single header chunk
-    if (!actionsMatch && !legendaryMatch && !traitsMatch && !reactionsMatch && !bonusMatch) {
+    // If no distinct section markers found, return single header chunk
+    if (markers.length === 0) {
       return { header: text };
     }
 
-    // 1. Legendary section
-    let legendaryStartIndex = -1;
-    if (legendaryMatch) {
-      legendaryStartIndex = legendaryMatch.index;
-    }
-
-    // 2. Reactions section
-    let reactionsStartIndex = -1;
-    let reactionsEndIndex = -1;
-    if (reactionsMatch) {
-      reactionsStartIndex = reactionsMatch.index;
-      reactionsEndIndex = legendaryStartIndex !== -1 ? legendaryStartIndex : text.length;
-    }
-
-    // 3. Actions section (Actions or Bonus Actions)
-    let actionsStartIndex = -1;
-    let actionsEndIndex = -1;
-    const firstActionIdx = Math.min(
-      actionsMatch ? actionsMatch.index : Infinity,
-      bonusMatch ? bonusMatch.index : Infinity
-    );
-    if (firstActionIdx !== Infinity) {
-      actionsStartIndex = firstActionIdx;
-      actionsEndIndex = Math.min(
-        reactionsStartIndex !== -1 && reactionsStartIndex > actionsStartIndex ? reactionsStartIndex : Infinity,
-        legendaryStartIndex !== -1 && legendaryStartIndex > actionsStartIndex ? legendaryStartIndex : Infinity,
-        text.length
-      );
-    }
-
-    // 4. Traits section
-    let traitsStartIndex = -1;
-    let traitsEndIndex = -1;
-    if (traitsMatch) {
-      traitsStartIndex = traitsMatch.index;
-      traitsEndIndex = Math.min(
-        actionsStartIndex !== -1 ? actionsStartIndex : Infinity,
-        reactionsStartIndex !== -1 ? reactionsStartIndex : Infinity,
-        legendaryStartIndex !== -1 ? legendaryStartIndex : Infinity,
-        text.length
-      );
-    }
-
-    // Determine header end index (earliest section)
-    const firstSectionIdx = Math.min(
-      traitsStartIndex !== -1 ? traitsStartIndex : Infinity,
-      actionsStartIndex !== -1 ? actionsStartIndex : Infinity,
-      reactionsStartIndex !== -1 ? reactionsStartIndex : Infinity,
-      legendaryStartIndex !== -1 ? legendaryStartIndex : Infinity
-    );
-    const headerEndIndex = firstSectionIdx !== Infinity ? firstSectionIdx : text.length;
+    markers.sort((a, b) => a.match.index - b.match.index);
 
     const sections: MonsterSections = {
-      header: text.substring(0, headerEndIndex).trim()
+      header: text.substring(0, markers[0].match.index).trim()
     };
 
-    if (traitsStartIndex !== -1 && traitsEndIndex > traitsStartIndex) {
-      const traitsText = text.substring(traitsStartIndex, traitsEndIndex).trim();
-      if (traitsText) sections.traits = traitsText;
-    }
-
-    if (actionsStartIndex !== -1 && actionsEndIndex > actionsStartIndex) {
-      const actionsText = text.substring(actionsStartIndex, actionsEndIndex).trim();
-      if (actionsText) sections.actions = actionsText;
-    }
-
-    if (reactionsStartIndex !== -1 && reactionsEndIndex > reactionsStartIndex) {
-      const reactionsText = text.substring(reactionsStartIndex, reactionsEndIndex).trim();
-      if (reactionsText) sections.reactions = reactionsText;
-    }
-
-    if (legendaryStartIndex !== -1) {
-      const legText = text.substring(legendaryStartIndex).trim();
-      if (legText) sections.legendary = legText;
+    for (let i = 0; i < markers.length; i++) {
+      const cur = markers[i];
+      const next = markers[i + 1];
+      const start = cur.match.index + cur.match[0].length;
+      const end = next ? next.match.index : text.length;
+      const content = text.substring(start, end).trim();
+      if (content) {
+        sections[cur.type] = content;
+      }
     }
 
     return sections;
