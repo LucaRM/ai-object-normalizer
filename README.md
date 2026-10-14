@@ -9,15 +9,25 @@ Inspired by and compatible with `automatic-translator`, this tool allows you to 
 ## 🌟 Key Features
 
 1. **Cascading AI Failover**:
-   - Automatically attempts providers in sequence: `Gemini` → `Groq` → `OpenAI` → `Anthropic` → `Ollama` → `Mock / Rule Heuristic`.
+   - Built to run **100% out of the box with zero signup and zero API keys required**, just like `automatic-translator`!
+   - Cascading provider sequence:
+     1. `Pollinations AI` (Free True LLM - OpenAI / GPT-OSS, No API key or signup)
+     2. `OVH Cloud AI` (Free Llama 3.3 70B & Mistral Nemo, No API key or signup)
+     3. `Gemini` (If `GEMINI_API_KEY` configured)
+     4. `Groq` (If `GROQ_API_KEY` configured)
+     5. `OpenAI` (If `OPENAI_API_KEY` configured)
+     6. `Anthropic Claude` (If `ANTHROPIC_API_KEY` configured)
+     7. `OpenRouter` (If `OPENROUTER_API_KEY` configured)
+     8. `Ollama` (Local model if enabled)
+     9. `Mock / Rule Heuristic` (Offline rule-based fallback safety net)
    - If a provider encounters a rate limit (HTTP 429), quota issue, or network timeout, it logs the event, marks the provider temporarily unavailable, and automatically cascades to the next provider.
-   - Option to lock to a specific provider via `specificProvider` or request headers.
+   - Option to lock to a specific provider via `specificProvider` (e.g. `"free"`, `"llama"`, `"pollinations"`, `"gemini"`) or request headers.
 
 2. **Property Checks & Validation Pipeline**:
    - **Schema Compliance**: Validates required keys and properties against the target model.
    - **Type Coercion**: Automatically coerces string numbers (`"13"` → `13`), splits comma-separated strings into arrays, cleans speed strings (`"40 ft. (8 spaces)"` → `"40 ft."`), and validates ability score bounds.
    - **MongoDB Document Enrichment**: Generates valid 24-character hexadecimal `_id` (`ObjectId`), sets `createdAt` and `updatedAt` ISO dates, sets `createdBy: 'system'` and default `books: [ObjectId(...)]`.
-   - **Embedded Translation Support**: Translates into requested locales (e.g., `pt-BR`) following the standardized `_metadata` and `metadata` structure.
+   - **Zero-Key Embedded Translation**: Directly integrates with `automatic-translator` (port 3008) and free translation memory endpoints to translate entities into requested locales (e.g., `pt-BR`) with `_metadata` and `metadata` without requiring an API key.
    - **Diagnostics**: Returns `checksRun`, `coercedFields`, `warnings`, and `errors`.
 
 3. **Multi-Format Export**:
@@ -37,16 +47,18 @@ Inspired by and compatible with `automatic-translator`, this tool allows you to 
 npm install
 ```
 
-### 2. Configuration
-Copy `.env.example` to `.env` and optionally set your API keys:
+### 2. Configuration (Optional!)
+Copy `.env.example` to `.env`. **No API keys or signup required to use the service!**
+If you wish to use paid/keyed cloud models as fallbacks, you can optionally provide them:
 ```env
 PORT=3009
+# Optional Cloud Keys:
 GEMINI_API_KEY=your_gemini_key
 GROQ_API_KEY=your_groq_key
 OPENAI_API_KEY=your_openai_key
 ANTHROPIC_API_KEY=your_anthropic_key
 ```
-*(If no API keys are provided, the service still works seamlessly using its built-in rule-based Mock extractor!)*
+*(Out of the box, the normalizer automatically runs on free keyless providers Pollinations and OVH Llama 3.3 70B, with zero signup required, exactly like automatic-translator! If offline, it seamlessly falls back to its built-in rule-based extractor.)*
 
 ### 3. Build & Run
 ```bash

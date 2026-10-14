@@ -12,6 +12,7 @@ import { TextSplitter } from './pipeline/splitter';
 import { NormalizationCache } from './pipeline/cache';
 import { EntitySectioner } from './pipeline/sectioner';
 import { EntityMerger } from './pipeline/merger';
+import { FreeTranslator } from './pipeline/translator';
 import { getTemplate } from './templates';
 
 export class ObjectNormalizer {
@@ -102,6 +103,11 @@ export class ObjectNormalizer {
       options
     );
 
+    // Free keyless translation enrichment if locale is requested
+    if (options.targetLocale) {
+      await FreeTranslator.enrichTranslations(normalized, options.targetLocale);
+    }
+
     const latencyMs = Date.now() - startTime;
 
     // 5. Multi-format serialization
@@ -168,7 +174,10 @@ export class ObjectNormalizer {
           pName === target ||
           pName.includes(target) ||
           target.includes(pName) ||
+          (target === 'free' && (pName.includes('free') || pName.includes('pollinations') || pName.includes('ovh') || pName.includes('llama'))) ||
           (target === 'pollinations' && pName.includes('pollinations')) ||
+          (target === 'ovh' && pName.includes('ovh')) ||
+          (target === 'llama' && pName.includes('llama')) ||
           (target === 'gemini' && pName.includes('gemini')) ||
           (target === 'claude' && pName.includes('anthropic')) ||
           (target === 'anthropic' && pName.includes('anthropic')) ||
@@ -199,13 +208,19 @@ export class ObjectNormalizer {
 
       rawOutput = await provider.normalize(sanitizedText, targetSchema, options);
       usedProvider = provider.name;
+      const parsedData = PropertyValidator.extractJson(rawOutput);
+      return {
+        data: parsedData,
+        rawOutput,
+        provider: usedProvider,
+        usedFallback: false,
+        attemptedProviders: [provider.name]
+      };
     } else {
       // Cascading fallback loop
       if (this.providers.length === 0) {
         throw new NormalizerError('No providers configured for normalizer', ErrorType.UNKNOWN);
       }
-
-      let succeeded = false;
 
       for (let attempt = 0; attempt < this.providers.length; attempt++) {
         const provider = this.providers[this.currentProviderIndex];
@@ -219,12 +234,18 @@ export class ObjectNormalizer {
 
         try {
           rawOutput = await provider.normalize(sanitizedText, targetSchema, options);
+          const parsedData = PropertyValidator.extractJson(rawOutput);
           usedProvider = provider.name;
-          succeeded = true;
           if (attempt > 0) {
             usedFallback = true;
           }
-          break;
+          return {
+            data: parsedData,
+            rawOutput,
+            provider: usedProvider,
+            usedFallback,
+            attemptedProviders
+          };
         } catch (err: any) {
           const errMsg = err.message || 'Unknown provider error';
           console.warn(`[Normalizer] Provider ${provider.name} failed: ${errMsg}`);
@@ -233,24 +254,13 @@ export class ObjectNormalizer {
         }
       }
 
-      if (!succeeded) {
-        throw new NormalizerError(
-          `All AI providers failed in cascading fallback. Attempted: [${attemptedProviders.join(
-            ', '
-          )}]. Details: ${errorDetails.join(' | ')}`,
-          ErrorType.API_ERROR
-        );
-      }
+      throw new NormalizerError(
+        `All AI providers failed in cascading fallback. Attempted: [${attemptedProviders.join(
+          ', '
+        )}]. Details: ${errorDetails.join(' | ')}`,
+        ErrorType.API_ERROR
+      );
     }
-
-    const parsedData = PropertyValidator.extractJson(rawOutput);
-    return {
-      data: parsedData,
-      rawOutput,
-      provider: usedProvider,
-      usedFallback,
-      attemptedProviders
-    };
   }
 
   /**
@@ -398,6 +408,11 @@ export class ObjectNormalizer {
       fullSchema,
       options
     );
+
+    // Free keyless translation enrichment if locale is requested
+    if (options.targetLocale) {
+      await FreeTranslator.enrichTranslations(normalized, options.targetLocale);
+    }
 
     const latencyMs = Date.now() - startTime;
     const format = options.format || 'all';

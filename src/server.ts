@@ -11,6 +11,7 @@ import { GroqProvider } from './providers/groq';
 import { OllamaProvider } from './providers/ollama';
 import { OpenRouterProvider } from './providers/openrouter';
 import { PollinationsProvider } from './providers/pollinations';
+import { OVHProvider } from './providers/ovh';
 import { MockProvider } from './providers/mock';
 import { listTemplates, getTemplate } from './templates';
 import { PropertyValidator } from './pipeline/validator';
@@ -36,40 +37,31 @@ app.use(express.static(path.join(__dirname, '../public')));
 function initializeNormalizer(): ObjectNormalizer {
   const normalizer = new ObjectNormalizer();
 
-  // 1. Google Gemini (Preferred for high accuracy and JSON mode)
+  // 1. Free Keyless AI Models (Zero signup, zero API keys required - active by default, like automatic-translator)
+  normalizer.addProvider(new PollinationsProvider());
+  normalizer.addProvider(new OVHProvider());
+
+  // 2. Cloud AI Model Providers (Active when API keys are configured in .env)
   if (process.env.GEMINI_API_KEY) {
     normalizer.addProvider(new GeminiProvider(process.env.GEMINI_API_KEY));
   }
-
-  // 2. Groq (Ultra-fast inference)
   if (process.env.GROQ_API_KEY) {
     normalizer.addProvider(new GroqProvider(process.env.GROQ_API_KEY));
   }
-
-  // 3. OpenAI
   if (process.env.OPENAI_API_KEY) {
     normalizer.addProvider(new OpenAIProvider(process.env.OPENAI_API_KEY));
   }
-
-  // 4. Anthropic Claude
   if (process.env.ANTHROPIC_API_KEY) {
     normalizer.addProvider(new AnthropicProvider(process.env.ANTHROPIC_API_KEY));
   }
-
-  // 5. OpenRouter (Free models or custom)
   if (process.env.OPENROUTER_API_KEY) {
     normalizer.addProvider(new OpenRouterProvider(process.env.OPENROUTER_API_KEY));
   }
-
-  // 6. Ollama (Local LLM if configured and explicitly enabled)
   if (process.env.OLLAMA_ENABLED === 'true') {
     normalizer.addProvider(new OllamaProvider());
   }
 
-  // 7. Pollinations (Free True LLM - No API Key required!)
-  normalizer.addProvider(new PollinationsProvider());
-
-  // 7. Mock / Intelligent Heuristic Provider (Guarantees zero-failure fallback & offline testing)
+  // 3. Mock / Intelligent Heuristic Rule Extractor (Guarantees zero-failure fallback & offline testing)
   normalizer.addProvider(new MockProvider());
 
   return normalizer;
@@ -168,6 +160,8 @@ app.post('/normalize', async (req: Request, res: Response) => {
       if (reqGeminiKey) activeNormalizer.addProvider(new GeminiProvider(reqGeminiKey));
       if (reqGroqKey) activeNormalizer.addProvider(new GroqProvider(reqGroqKey));
       if (reqOpenAiKey) activeNormalizer.addProvider(new OpenAIProvider(reqOpenAiKey));
+      activeNormalizer.addProvider(new PollinationsProvider());
+      activeNormalizer.addProvider(new OVHProvider());
       activeNormalizer.addProvider(new MockProvider());
     }
 

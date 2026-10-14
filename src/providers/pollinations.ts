@@ -80,20 +80,15 @@ export class PollinationsProvider implements NormalizerProvider {
     const templateDef = options.template ? getTemplate(options.template) : undefined;
     const specializedGuide = templateDef?.promptGuide ? `\n${templateDef.promptGuide}\n` : '';
 
-    const localeInstruction = options.targetLocale
-      ? `\nCRITICAL LOCALIZATION REQUIREMENT: Also translate the entity into locale "${options.targetLocale}" and populate the translations["${options.targetLocale}"] object with translated fields adhering to the schema's translation structure.`
-      : '';
-
-    // Clean schema for prompt to keep it lean and fast
+    // Always keep prompt schema lean to prevent token limit cutoff.
+    // Localization is handled via FreeTranslator post-extraction.
     const promptSchema = { ...schema };
     delete (promptSchema as any)._id;
     delete (promptSchema as any).createdAt;
     delete (promptSchema as any).updatedAt;
     delete (promptSchema as any).createdBy;
     delete (promptSchema as any).updatedBy;
-    if (!options.targetLocale) {
-      delete (promptSchema as any).translations;
-    }
+    delete (promptSchema as any).translations;
 
     return `You are an expert AI data normalizer and extractor.
 Your task is to take the raw unstructured paragraph of text below and normalize/convert it into a valid JSON object adhering strictly to the properties, types, and structure of the Target Schema Template.
@@ -104,7 +99,7 @@ RULES:
 3. Extract all values faithfully from the raw text. Coerce numbers to numeric integers/floats if the schema indicates numeric values.
 4. For missing optional arrays, return an empty array [].
 5. RELATIONAL FIELDS & FOREIGN REFERENCES: For fields that tie into another entity (such as 'feat' in background, 'books' references, 'classId' in subclass, 'baseItem' in magical items, or spell lists), return the human-readable NAME of the referenced entity (e.g. feat: "Savage Attacker", books: ["Player's Handbook 2024"], classId: "Fighter"). Do NOT invent random hexadecimal ObjectIds for foreign entities.
-6. Keep descriptions clean and faithful to the source.${specializedGuide}${localeInstruction}
+6. Keep descriptions clean and faithful to the source.${specializedGuide}
 
 Target Schema Template:
 ${JSON.stringify(promptSchema, null, 2)}
