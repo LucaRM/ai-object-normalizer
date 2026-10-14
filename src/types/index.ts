@@ -11,7 +11,9 @@ export class NormalizerError extends Error {
   constructor(
     message: string,
     public type: ErrorType,
-    public provider?: string
+    public provider?: string,
+    public retryAfterSeconds?: number,
+    public rawError?: any
   ) {
     super(message);
     this.name = 'NormalizerError';
@@ -96,6 +98,18 @@ export interface NormalizeOptions {
    * Set to true to allow offline rule-based deterministic fallback.
    */
   allowMock?: boolean;
+
+  /**
+   * Minimum waiting period in milliseconds between consecutive calls to external AI providers.
+   * Prevents API lockout. Defaults to 1500ms (or process.env.PROVIDER_MIN_INTERVAL_MS).
+   */
+  minIntervalMs?: number;
+
+  /**
+   * Default cooldown duration in seconds when an AI provider returns a rate-limit (429) without an explicit retry time.
+   * Defaults to 60 seconds (or process.env.DEFAULT_COOLDOWN_SECONDS).
+   */
+  defaultCooldownSeconds?: number;
 }
 
 export interface CustomCheckRule {
@@ -129,6 +143,7 @@ export interface ValidationResult {
 export interface NormalizerProvider {
   name: string;
   isAvailable(): boolean;
+  setAvailable?(state: boolean): void;
   normalize(text: string, schema: any, options: NormalizeOptions): Promise<string>;
 }
 
@@ -178,4 +193,7 @@ export interface ProviderInfo {
   available: boolean;
   type?: 'cloud' | 'local' | 'mock';
   models?: string[];
+  inCooldown?: boolean;
+  cooldownRemainingSeconds?: number;
+  cooldownReason?: string;
 }

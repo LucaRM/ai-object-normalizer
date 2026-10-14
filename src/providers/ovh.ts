@@ -18,6 +18,10 @@ export class OVHProvider implements NormalizerProvider {
     return this.available;
   }
 
+  setAvailable(state: boolean): void {
+    this.available = state;
+  }
+
   async normalize(text: string, schema: any, options: NormalizeOptions): Promise<string> {
     const prompt = this.buildPrompt(text, schema, options);
     let lastError: any = null;
@@ -65,15 +69,32 @@ export class OVHProvider implements NormalizerProvider {
       }
     }
 
-    if (lastError?.response?.status === 429) {
-      this.available = false;
-      throw new NormalizerError('OVH rate limit reached, falling back...', ErrorType.RATE_LIMIT, this.name);
+    const status = lastError?.response?.status;
+    const retryAfter = lastError?.response?.headers?.['retry-after'];
+    const responseData = lastError?.response?.data;
+    const detailMsg =
+      (typeof responseData === 'object'
+        ? responseData?.error?.message || responseData?.message
+        : responseData) ||
+      lastError?.message ||
+      'OVH free AI models failed';
+
+    if (status === 429) {
+      throw new NormalizerError(
+        `OVH rate limit reached: ${detailMsg}`,
+        ErrorType.RATE_LIMIT,
+        this.name,
+        retryAfter ? Number(retryAfter) : undefined,
+        lastError
+      );
     }
 
     throw new NormalizerError(
-      lastError?.message || 'OVH free AI models failed',
+      detailMsg,
       ErrorType.API_ERROR,
-      this.name
+      this.name,
+      undefined,
+      lastError
     );
   }
 

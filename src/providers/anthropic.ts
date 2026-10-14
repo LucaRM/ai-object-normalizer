@@ -18,6 +18,10 @@ export class AnthropicProvider implements NormalizerProvider {
     return this.available && !!this.apiKey;
   }
 
+  setAvailable(state: boolean): void {
+    this.available = state;
+  }
+
   async normalize(text: string, schema: any, options: NormalizeOptions): Promise<string> {
     if (!this.apiKey) {
       throw new NormalizerError('Anthropic API key is required', ErrorType.API_ERROR, this.name);
@@ -58,17 +62,37 @@ export class AnthropicProvider implements NormalizerProvider {
 
       throw new NormalizerError('Empty response from Anthropic', ErrorType.API_ERROR, this.name);
     } catch (error: any) {
-      if (error.response?.status === 429) {
-        this.available = false;
-        throw new NormalizerError('Rate limit exceeded', ErrorType.RATE_LIMIT, this.name);
+      if (error instanceof NormalizerError) {
+        throw error;
       }
-      if (error.response?.status === 401) {
-        throw new NormalizerError('Invalid Anthropic API key', ErrorType.API_ERROR, this.name);
+      const status = error.response?.status;
+      const retryAfter = error.response?.headers?.['retry-after'];
+      const responseData = error.response?.data;
+      const detailMsg =
+        (typeof responseData === 'object'
+          ? responseData?.error?.message || responseData?.message
+          : responseData) ||
+        error.message ||
+        'Anthropic normalization failed';
+
+      if (status === 429) {
+        throw new NormalizerError(
+          `Anthropic rate limit exceeded: ${detailMsg}`,
+          ErrorType.RATE_LIMIT,
+          this.name,
+          retryAfter ? Number(retryAfter) : undefined,
+          error
+        );
+      }
+      if (status === 401) {
+        throw new NormalizerError('Invalid Anthropic API key', ErrorType.API_ERROR, this.name, undefined, error);
       }
       throw new NormalizerError(
-        error.message || 'Anthropic normalization failed',
+        detailMsg,
         ErrorType.API_ERROR,
-        this.name
+        this.name,
+        undefined,
+        error
       );
     }
   }

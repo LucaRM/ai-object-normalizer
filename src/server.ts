@@ -106,6 +106,20 @@ app.post('/providers/reset', (req: Request, res: Response) => {
   });
 });
 
+// Set provider cooldown manually or test cooldown mechanism
+app.post('/providers/cooldown', (req: Request, res: Response) => {
+  const { provider, seconds = 60, reason = 'Manual cooldown requested' } = req.body;
+  if (!provider) {
+    return res.status(400).json({ error: 'Property "provider" is required' });
+  }
+  normalizer.setProviderCooldown(provider, Number(seconds), reason);
+  res.json({
+    success: true,
+    message: `Provider "${provider}" set offline for ${seconds} seconds`,
+    providers: normalizer.getAllProvidersInfo()
+  });
+});
+
 // List predefined templates
 app.get('/templates', (req: Request, res: Response) => {
   res.json({
@@ -165,7 +179,11 @@ app.post('/normalize', async (req: Request, res: Response) => {
       ...(req.body.autoSplit !== undefined && { autoSplit: Boolean(req.body.autoSplit) }),
       ...(req.body.chunked !== undefined && { chunked: Boolean(req.body.chunked) }),
       ...(req.body.skipCache !== undefined && { skipCache: Boolean(req.body.skipCache) }),
-      ...(req.body.cacheTtlMs !== undefined && { cacheTtlMs: Number(req.body.cacheTtlMs) })
+      ...(req.body.cacheTtlMs !== undefined && { cacheTtlMs: Number(req.body.cacheTtlMs) }),
+      ...(req.body.minIntervalMs !== undefined && { minIntervalMs: Number(req.body.minIntervalMs) }),
+      ...(req.body.defaultCooldownSeconds !== undefined && { defaultCooldownSeconds: Number(req.body.defaultCooldownSeconds) }),
+      ...(req.headers['x-min-interval-ms'] && { minIntervalMs: Number(req.headers['x-min-interval-ms']) }),
+      ...(req.headers['x-cooldown-seconds'] && { defaultCooldownSeconds: Number(req.headers['x-cooldown-seconds']) })
     };
 
     const reqGeminiKey = getHeaderString(req.headers['x-gemini-key']) || getHeaderString(req.headers['x-api-key']);

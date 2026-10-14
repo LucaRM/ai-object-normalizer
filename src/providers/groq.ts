@@ -18,6 +18,10 @@ export class GroqProvider implements NormalizerProvider {
     return this.available && !!this.apiKey;
   }
 
+  setAvailable(state: boolean): void {
+    this.available = state;
+  }
+
   async normalize(text: string, schema: any, options: NormalizeOptions): Promise<string> {
     if (!this.apiKey) {
       throw new NormalizerError('Groq API key is required', ErrorType.API_ERROR, this.name);
@@ -60,17 +64,37 @@ export class GroqProvider implements NormalizerProvider {
 
       throw new NormalizerError('Empty response from Groq', ErrorType.API_ERROR, this.name);
     } catch (error: any) {
-      if (error.response?.status === 429) {
-        this.available = false;
-        throw new NormalizerError('Rate limit exceeded', ErrorType.RATE_LIMIT, this.name);
+      if (error instanceof NormalizerError) {
+        throw error;
       }
-      if (error.response?.status === 401) {
-        throw new NormalizerError('Invalid Groq API key', ErrorType.API_ERROR, this.name);
+      const status = error.response?.status;
+      const retryAfter = error.response?.headers?.['retry-after'];
+      const responseData = error.response?.data;
+      const detailMsg =
+        (typeof responseData === 'object'
+          ? responseData?.error?.message || responseData?.message
+          : responseData) ||
+        error.message ||
+        'Groq normalization failed';
+
+      if (status === 429) {
+        throw new NormalizerError(
+          `Groq rate limit exceeded: ${detailMsg}`,
+          ErrorType.RATE_LIMIT,
+          this.name,
+          retryAfter ? Number(retryAfter) : undefined,
+          error
+        );
+      }
+      if (status === 401) {
+        throw new NormalizerError('Invalid Groq API key', ErrorType.API_ERROR, this.name, undefined, error);
       }
       throw new NormalizerError(
-        error.message || 'Groq normalization failed',
+        detailMsg,
         ErrorType.API_ERROR,
-        this.name
+        this.name,
+        undefined,
+        error
       );
     }
   }

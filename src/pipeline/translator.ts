@@ -9,6 +9,7 @@ import axios from 'axios';
 export class FreeTranslator {
   private static localTranslatorUrl = process.env.AUTOMATIC_TRANSLATOR_URL || 'http://localhost:3008/translate';
   private static memoryCache = new Map<string, string>();
+  private static myMemoryCooldownUntil = 0;
 
   /**
    * Translate a single string into the target locale without requiring an API key.
@@ -52,13 +53,18 @@ export class FreeTranslator {
     }
 
     // 2. Try MyMemory Free API (zero-signup, zero-key)
+    if (Date.now() < this.myMemoryCooldownUntil) {
+      return trimmed;
+    }
+
     try {
       // If query is longer than 450 chars, split into sentences to respect MyMemory 500-char limit
       if (trimmed.length > 450) {
         const sentences = trimmed.match(/[^.!?]+[.!?]+|[^.!?]+$/g) || [trimmed];
-        const translatedParts = await Promise.all(
-          sentences.map(s => this.translateText(s.trim(), targetLocale, sourceLocale))
-        );
+        const translatedParts: string[] = [];
+        for (const s of sentences) {
+          translatedParts.push(await this.translateText(s.trim(), targetLocale, sourceLocale));
+        }
         const combined = translatedParts.join(' ').trim();
         this.memoryCache.set(cacheKey, combined);
         return combined;
@@ -87,7 +93,12 @@ export class FreeTranslator {
         return result;
       }
     } catch (err: any) {
-      console.warn(`[FreeTranslator] MyMemory failed for "${trimmed.slice(0, 30)}...": ${err.message}`);
+      if (err.response?.status === 429) {
+        this.myMemoryCooldownUntil = Date.now() + 60000;
+        console.warn(`[FreeTranslator] MyMemory rate-limited (429). Placed on cooldown for 60s.`);
+      } else {
+        console.warn(`[FreeTranslator] MyMemory failed for "${trimmed.slice(0, 30)}...": ${err.message}`);
+      }
     }
 
     // 3. Fallback: return original text

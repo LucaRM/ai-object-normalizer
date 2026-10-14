@@ -20,6 +20,10 @@ export class OpenRouterProvider implements NormalizerProvider {
     return this.available && !!this.apiKey;
   }
 
+  setAvailable(state: boolean): void {
+    this.available = state;
+  }
+
   async normalize(text: string, schema: any, options: NormalizeOptions): Promise<string> {
     if (!this.apiKey) {
       throw new NormalizerError('OpenRouter API key is required', ErrorType.API_ERROR, this.name);
@@ -63,14 +67,34 @@ export class OpenRouterProvider implements NormalizerProvider {
 
       throw new NormalizerError('Empty response from OpenRouter API', ErrorType.API_ERROR, this.name);
     } catch (error: any) {
-      if (error.response?.status === 429) {
-        this.available = false;
-        throw new NormalizerError('OpenRouter rate limit reached', ErrorType.RATE_LIMIT, this.name);
+      if (error instanceof NormalizerError) {
+        throw error;
+      }
+      const status = error.response?.status;
+      const retryAfter = error.response?.headers?.['retry-after'];
+      const responseData = error.response?.data;
+      const detailMsg =
+        (typeof responseData === 'object'
+          ? responseData?.error?.message || responseData?.message
+          : responseData) ||
+        error.message ||
+        'OpenRouter normalization failed';
+
+      if (status === 429) {
+        throw new NormalizerError(
+          `OpenRouter rate limit reached: ${detailMsg}`,
+          ErrorType.RATE_LIMIT,
+          this.name,
+          retryAfter ? Number(retryAfter) : undefined,
+          error
+        );
       }
       throw new NormalizerError(
-        error.message || 'OpenRouter normalization failed',
+        detailMsg,
         ErrorType.API_ERROR,
-        this.name
+        this.name,
+        undefined,
+        error
       );
     }
   }

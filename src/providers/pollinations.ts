@@ -15,6 +15,10 @@ export class PollinationsProvider implements NormalizerProvider {
     return this.available;
   }
 
+  setAvailable(state: boolean): void {
+    this.available = state;
+  }
+
   async normalize(text: string, schema: any, options: NormalizeOptions): Promise<string> {
     try {
       const prompt = this.buildPrompt(text, schema, options);
@@ -65,13 +69,34 @@ export class PollinationsProvider implements NormalizerProvider {
 
       throw new NormalizerError('Empty response from Pollinations free AI', ErrorType.API_ERROR, this.name);
     } catch (error: any) {
-      if (error.response?.status === 429) {
-        throw new NormalizerError('Pollinations rate limit reached, falling back...', ErrorType.RATE_LIMIT, this.name);
+      if (error instanceof NormalizerError) {
+        throw error;
+      }
+      const status = error.response?.status;
+      const retryAfter = error.response?.headers?.['retry-after'];
+      const responseData = error.response?.data;
+      const detailMsg =
+        (typeof responseData === 'object'
+          ? responseData?.error?.message || responseData?.message
+          : responseData) ||
+        error.message ||
+        'Pollinations free AI normalization failed';
+
+      if (status === 429) {
+        throw new NormalizerError(
+          `Pollinations rate limit reached: ${detailMsg}`,
+          ErrorType.RATE_LIMIT,
+          this.name,
+          retryAfter ? Number(retryAfter) : undefined,
+          error
+        );
       }
       throw new NormalizerError(
-        error.message || 'Pollinations free AI normalization failed',
+        detailMsg,
         ErrorType.API_ERROR,
-        this.name
+        this.name,
+        undefined,
+        error
       );
     }
   }

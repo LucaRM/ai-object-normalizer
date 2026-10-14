@@ -8,5 +8,7 @@ export * from './providers/gemini';
 export * from './providers/openai';
 export * from './providers/anthropic';
 export * from './providers/groq';
+export * from './providers/pollinations';
+export * from './providers/ovh';
 export * from './providers/ollama';
 export * from './providers/mock';

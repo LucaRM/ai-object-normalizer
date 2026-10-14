@@ -4,7 +4,8 @@ import {
   NormalizeResult,
   NormalizerError,
   ErrorType,
-  AutoSplitNormalizeResult
+  AutoSplitNormalizeResult,
+  ProviderInfo
 } from './types';
 import { PropertyValidator } from './pipeline/validator';
 import { ObjectFormatter } from './pipeline/formatter';
@@ -17,11 +18,198 @@ import { getTemplate } from './templates';
 
 export class ObjectNormalizer {
   private providers: NormalizerProvider[];
-  private currentProviderIndex = 0;
   public cache = NormalizationCache.getInstance();
+  private cooldowns: Map<string, { until: number; durationSeconds: number; reason: string }> = new Map();
+  private lastCallTime: Map<string, number> = new Map();
 
   constructor(providers: NormalizerProvider[] = []) {
     this.providers = providers;
+  }
+
+  /**
+   * Helper to check if a provider is a local mock / deterministic extractor
+   */
+  public isMockProvider(provider: NormalizerProvider | string): boolean {
+    const pName = (typeof provider === 'string' ? provider : provider.name).toLowerCase();
+    return pName.includes('mock') || pName.includes('deterministic');
+  }
+
+  /**
+   * Set a provider offline on cooldown for specified seconds
+   */
+  public setProviderCooldown(providerName: string, seconds: number, reason: string = 'Rate limit / error'): void {
+    const clamped = Math.max(1, Math.min(seconds, 86400));
+    const until = Date.now() + (clamped * 1000);
+    this.cooldowns.set(providerName, { until, durationSeconds: clamped, reason });
+    console.warn(`[Normalizer] ⏳ Provider "${providerName}" set offline for ${clamped}s (until ${new Date(until).toLocaleTimeString()}): ${reason}`);
+
+    const provider = this.providers.find(p => p.name === providerName);
+    if (provider && typeof provider.setAvailable === 'function') {
+      provider.setAvailable(false);
+    }
+  }
+
+  /**
+   * Get remaining cooldown in seconds for a provider (0 if ready or expired)
+   */
+  public getCooldownRemaining(providerName: string): number {
+    const cd = this.cooldowns.get(providerName);
+    if (!cd) return 0;
+    const remaining = Math.ceil((cd.until - Date.now()) / 1000);
+    if (remaining <= 0) {
+      this.clearCooldown(providerName);
+      return 0;
+    }
+    return remaining;
+  }
+
+  /**
+   * Clear cooldown for a provider and restore it to active rotation
+   */
+  public clearCooldown(providerName: string): void {
+    if (this.cooldowns.has(providerName)) {
+      this.cooldowns.delete(providerName);
+      console.log(`[Normalizer] 🔄 Provider "${providerName}" cooldown expired! Restored to active rotation.`);
+      const provider = this.providers.find(p => p.name === providerName);
+      if (provider && typeof provider.setAvailable === 'function') {
+        provider.setAvailable(true);
+      }
+    }
+  }
+
+  /**
+   * Check if a provider is currently unblocked and available
+   */
+  public isProviderAvailable(provider: NormalizerProvider): boolean {
+    const remaining = this.getCooldownRemaining(provider.name);
+    if (remaining > 0) {
+      return false;
+    }
+    return provider.isAvailable();
+  }
+
+  /**
+   * Parse cooldown period in seconds from error object, messages, or headers
+   */
+  public parseCooldownSeconds(err: any, fallbackSeconds: number = 60): number {
+    // 1. Explicit retryAfterSeconds property
+    if (typeof err?.retryAfterSeconds === 'number' && err.retryAfterSeconds > 0) {
+      return Math.min(3600, Math.max(1, Math.round(err.retryAfterSeconds)));
+    }
+
+    // 2. HTTP Retry-After header
+    const headers = err?.rawError?.response?.headers || err?.response?.headers;
+    const retryHeader = headers?.['retry-after'];
+    if (retryHeader) {
+      const numHeader = Number(retryHeader);
+      if (!isNaN(numHeader) && numHeader > 0) {
+        return Math.min(3600, Math.max(1, Math.round(numHeader)));
+      }
+      const dateHeader = new Date(retryHeader).getTime();
+      if (!isNaN(dateHeader) && dateHeader > Date.now()) {
+        const diffSec = Math.ceil((dateHeader - Date.now()) / 1000);
+        return Math.min(3600, Math.max(1, diffSec));
+      }
+    }
+
+    // 3. Search text within error message and response body
+    const parts: string[] = [
+      err?.message || '',
+      err?.rawError?.message || '',
+      typeof err?.rawError?.response?.data === 'string'
+        ? err.rawError.response.data
+        : JSON.stringify(err?.rawError?.response?.data || ''),
+      typeof err?.response?.data === 'string'
+        ? err.response.data
+        : JSON.stringify(err?.response?.data || '')
+    ];
+    const combined = parts.join(' ');
+
+    // 3a. Minutes + Seconds pattern (e.g. "try again in 1m 20s" or "resets in 2 minutes and 30 seconds")
+    const minSecMatch = combined.match(/(?:try again|retry|wait|resets?|cooling down|rate limit)(?:\s+(?:in|after))?\s*[:]?\s*(\d+)\s*(?:m|min|mins|minutes?)\s*(?:and\s*)?(\d+(?:\.\d+)?)\s*(?:s|sec|secs|seconds?)/i);
+    if (minSecMatch) {
+      const mins = Number(minSecMatch[1]);
+      const secs = Number(minSecMatch[2]);
+      return Math.min(3600, Math.max(1, Math.ceil(mins * 60 + secs)));
+    }
+
+    // 3b. Minutes only pattern (e.g. "try again in 2 minutes", "resets in 1.5 mins")
+    const minMatch = combined.match(/(?:try again|retry|wait|resets?|cooling down|rate limit)(?:\s+(?:in|after))?\s*[:]?\s*(\d+(?:\.\d+)?)\s*(?:m|min|mins|minutes?)\b/i);
+    if (minMatch) {
+      const mins = parseFloat(minMatch[1]);
+      if (!isNaN(mins) && mins > 0) {
+        return Math.min(3600, Math.max(1, Math.ceil(mins * 60)));
+      }
+    }
+
+    // 3c. Seconds pattern (e.g. "try again in 15.2s", "retry after 30 seconds", "resets in 45s", "wait: 20s")
+    const secMatch = combined.match(/(?:try again|retry|wait|resets?|cooling down|rate limit)(?:\s+(?:in|after))?\s*[:]?\s*(\d+(?:\.\d+)?)\s*(?:s|sec|secs|seconds?)\b/i);
+    if (secMatch) {
+      const secs = parseFloat(secMatch[1]);
+      if (!isNaN(secs) && secs > 0) {
+        return Math.min(3600, Math.max(1, Math.ceil(secs)));
+      }
+    }
+
+    // 3d. Fallback generic "in X seconds" / "after X seconds"
+    const genericSecMatch = combined.match(/(?:in|after)\s*(\d+(?:\.\d+)?)\s*(?:s|sec|secs|seconds?)\b/i);
+    if (genericSecMatch) {
+      const secs = parseFloat(genericSecMatch[1]);
+      if (!isNaN(secs) && secs > 0) {
+        return Math.min(3600, Math.max(1, Math.ceil(secs)));
+      }
+    }
+
+    // 4. Fallback defaults by error type
+    const isRateLimit =
+      err?.type === ErrorType.RATE_LIMIT ||
+      err?.rawError?.response?.status === 429 ||
+      err?.response?.status === 429 ||
+      /rate limit|too many requests|429|quota/i.test(combined);
+
+    if (isRateLimit) {
+      return Math.min(3600, Math.max(5, fallbackSeconds));
+    }
+
+    const isNetworkOrTimeout =
+      err?.type === ErrorType.NETWORK_ERROR ||
+      err?.code === 'ECONNABORTED' ||
+      err?.code === 'ETIMEDOUT' ||
+      /timeout|connection reset|econnreset|503|504/i.test(combined);
+
+    if (isNetworkOrTimeout) {
+      return 20;
+    }
+
+    return 30;
+  }
+
+  /**
+   * Enforces call pacing delay between consecutive requests to external AI providers.
+   * Prevents hitting burst rate limits and API lockouts.
+   */
+  public async enforceCallPacing(provider: NormalizerProvider, customIntervalMs?: number): Promise<void> {
+    // Offline mock / deterministic extractor needs no network pacing
+    if (this.isMockProvider(provider)) {
+      return;
+    }
+
+    const minInterval = customIntervalMs !== undefined
+      ? customIntervalMs
+      : Number(process.env.PROVIDER_MIN_INTERVAL_MS ?? 1500);
+
+    if (minInterval <= 0) {
+      return;
+    }
+
+    const lastTime = this.lastCallTime.get(provider.name) || 0;
+    const elapsed = Date.now() - lastTime;
+    if (elapsed < minInterval) {
+      const waitMs = minInterval - elapsed;
+      console.log(`[Normalizer] ⏱️ Call pacing for "${provider.name}": waiting ${waitMs}ms to prevent API lockout...`);
+      await new Promise(resolve => setTimeout(resolve, waitMs));
+    }
+    this.lastCallTime.set(provider.name, Date.now());
   }
 
   /**
@@ -190,8 +378,8 @@ export class ObjectNormalizer {
           (target === 'groq' && pName.includes('groq')) ||
           (target === 'ollama' && pName.includes('ollama')) ||
           (target === 'openrouter' && pName.includes('openrouter')) ||
-          (target === 'mock' && (pName.includes('mock') || pName.includes('deterministic'))) ||
-          (target === 'deterministic' && (pName.includes('mock') || pName.includes('deterministic')))
+          (target === 'mock' && this.isMockProvider(pName)) ||
+          (target === 'deterministic' && this.isMockProvider(pName))
         );
       });
 
@@ -204,55 +392,84 @@ export class ObjectNormalizer {
         );
       }
 
+      const cdRemaining = this.getCooldownRemaining(provider.name);
+      if (cdRemaining > 0) {
+        throw new NormalizerError(
+          `Provider "${provider.name}" is temporarily offline for ${cdRemaining} more seconds (rate-limit cooldown). Try again later or use automatic cascade.`,
+          ErrorType.RATE_LIMIT,
+          provider.name
+        );
+      }
+
       if (!provider.isAvailable()) {
         throw new NormalizerError(
-          `Provider "${options.specificProvider}" is currently unavailable or missing API key`,
+          `Provider "${provider.name}" is currently unavailable or missing API key`,
           ErrorType.API_ERROR,
           provider.name
         );
       }
 
-      rawOutput = await provider.normalize(sanitizedText, targetSchema, options);
-      usedProvider = provider.name;
-      const parsedData = PropertyValidator.extractJson(rawOutput);
-      return {
-        data: parsedData,
-        rawOutput,
-        provider: usedProvider,
-        usedFallback: false,
-        attemptedProviders: [provider.name]
-      };
+      try {
+        await this.enforceCallPacing(provider, options.minIntervalMs);
+        rawOutput = await provider.normalize(sanitizedText, targetSchema, options);
+        this.lastCallTime.set(provider.name, Date.now());
+        usedProvider = provider.name;
+        const parsedData = PropertyValidator.extractJson(rawOutput);
+        return {
+          data: parsedData,
+          rawOutput,
+          provider: usedProvider,
+          usedFallback: false,
+          attemptedProviders: [provider.name]
+        };
+      } catch (err: any) {
+        this.lastCallTime.set(provider.name, Date.now());
+        const cooldownSec = this.parseCooldownSeconds(err, options.defaultCooldownSeconds || 60);
+        this.setProviderCooldown(provider.name, cooldownSec, err.message || 'Provider call failed');
+        throw err;
+      }
     } else {
-      // Cascading fallback loop
+      // Cascading priority fallback loop:
+      // Always starts evaluating from provider index 0 (highest priority).
+      // If provider 0 is in cooldown, falls back to provider 1.
+      // As soon as provider 0's cooldown expires, future calls automatically return to provider 0!
       if (this.providers.length === 0) {
         throw new NormalizerError('No providers configured for normalizer', ErrorType.UNKNOWN);
       }
 
-      for (let attempt = 0; attempt < this.providers.length; attempt++) {
-        const provider = this.providers[this.currentProviderIndex];
+      for (let i = 0; i < this.providers.length; i++) {
+        const provider = this.providers[i];
 
         // Guard: Mock/Deterministic provider is only used in cascade if options.allowMock === true
-        const isMockProvider =
-          provider.name.toLowerCase().includes('mock') ||
-          provider.name.toLowerCase().includes('deterministic');
-        if (isMockProvider && !options.allowMock) {
-          this.currentProviderIndex = (this.currentProviderIndex + 1) % this.providers.length;
+        if (this.isMockProvider(provider) && !options.allowMock) {
+          continue;
+        }
+
+        // 1. Check cooldown
+        const remainingCooldown = this.getCooldownRemaining(provider.name);
+        if (remainingCooldown > 0) {
+          errorDetails.push(`${provider.name}: offline in cooldown (${remainingCooldown}s remaining)`);
+          continue;
+        }
+
+        // 2. Check general availability
+        if (!provider.isAvailable()) {
+          errorDetails.push(`${provider.name}: unavailable`);
           continue;
         }
 
         attemptedProviders.push(provider.name);
 
-        if (!provider.isAvailable()) {
-          errorDetails.push(`${provider.name}: unavailable`);
-          this.currentProviderIndex = (this.currentProviderIndex + 1) % this.providers.length;
-          continue;
-        }
-
         try {
+          // Enforce pacing interval before calling external provider
+          await this.enforceCallPacing(provider, options.minIntervalMs);
+
           rawOutput = await provider.normalize(sanitizedText, targetSchema, options);
+          this.lastCallTime.set(provider.name, Date.now());
+
           const parsedData = PropertyValidator.extractJson(rawOutput);
           usedProvider = provider.name;
-          if (attempt > 0) {
+          if (attemptedProviders.length > 1 || i > 0) {
             usedFallback = true;
           }
           return {
@@ -263,10 +480,16 @@ export class ObjectNormalizer {
             attemptedProviders
           };
         } catch (err: any) {
+          this.lastCallTime.set(provider.name, Date.now());
           const errMsg = err.message || 'Unknown provider error';
-          console.warn(`[Normalizer] Provider ${provider.name} failed: ${errMsg}`);
+          console.warn(`[Normalizer] Provider "${provider.name}" failed: ${errMsg}`);
           errorDetails.push(`${provider.name}: ${errMsg}`);
-          this.currentProviderIndex = (this.currentProviderIndex + 1) % this.providers.length;
+
+          // Set provider offline for parsed cooldown duration
+          const cooldownSec = this.parseCooldownSeconds(err, options.defaultCooldownSeconds || 60);
+          this.setProviderCooldown(provider.name, cooldownSec, errMsg);
+
+          // Proceed to next priority provider
         }
       }
 
@@ -620,26 +843,48 @@ export class ObjectNormalizer {
   }
 
   /**
-   * Reset providers to available state
+   * Reset providers and clear all active cooldowns
    */
   resetProviders(): void {
-    this.currentProviderIndex = 0;
+    this.cooldowns.clear();
+    for (const provider of this.providers) {
+      if (typeof provider.setAvailable === 'function') {
+        provider.setAvailable(true);
+      }
+    }
+    console.log('[Normalizer] All provider cooldowns cleared and availability reset.');
   }
 
   /**
-   * Get list of currently available providers
+   * Get list of currently available providers that are not in cooldown
    */
   getAvailableProviders(): string[] {
-    return this.providers.filter(p => p.isAvailable()).map(p => p.name);
+    return this.providers
+      .filter(p => this.isProviderAvailable(p))
+      .map(p => p.name);
   }
 
   /**
-   * Get all provider names with status
+   * Get all provider names with detailed cooldown and availability status
    */
-  getAllProvidersInfo(): Array<{ name: string; available: boolean }> {
-    return this.providers.map(p => ({
-      name: p.name,
-      available: p.isAvailable()
-    }));
+  getAllProvidersInfo(): ProviderInfo[] {
+    return this.providers.map(p => {
+      const remaining = this.getCooldownRemaining(p.name);
+      const inCooldown = remaining > 0;
+      const cd = this.cooldowns.get(p.name);
+
+      return {
+        name: p.name,
+        available: !inCooldown && p.isAvailable(),
+        inCooldown,
+        cooldownRemainingSeconds: inCooldown ? remaining : 0,
+        cooldownReason: inCooldown ? cd?.reason : undefined,
+        type: this.isMockProvider(p)
+          ? 'mock'
+          : p.name.toLowerCase().includes('ollama')
+          ? 'local'
+          : 'cloud'
+      };
+    });
   }
 }

@@ -20,6 +20,10 @@ export class OllamaProvider implements NormalizerProvider {
     return this.available;
   }
 
+  setAvailable(state: boolean): void {
+    this.available = state;
+  }
+
   async normalize(text: string, schema: any, options: NormalizeOptions): Promise<string> {
     try {
       const prompt = this.buildPrompt(text, schema, options);
