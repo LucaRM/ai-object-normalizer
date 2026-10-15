@@ -256,16 +256,35 @@ export class ObjectNormalizer {
       entity.legendaryActionUses = 3;
     }
 
-    // 5. Spellcasting Action: Ensure Spellcasting is never omitted from actions
-    if (!Array.isArray(entity.actions)) {
+    // 5. Spellcasting Action
+    if (Array.isArray(entity.actions)) {
+      // Filter out dummy negative entries like "The assassin does not cast spells."
+      entity.actions = entity.actions.filter((a: any) => {
+        if (!a || typeof a !== 'object') return false;
+        const name = (a.name || '').trim();
+        const desc = (a.description || '').trim();
+        if (/spellcasting/i.test(name) && /(?:does\s+not\s+(?:cast|have)|cannot\s+cast|no\s+spells|none\b|n\/a\b)/i.test(desc)) {
+          return false;
+        }
+        return true;
+      });
+    } else {
       entity.actions = [];
     }
-    const hasSpellcasting = entity.actions.some((a: any) => /spellcasting/i.test(a?.name || ''));
-    if (!hasSpellcasting) {
-      const extractedSpell = MonsterStatExtractor.extractSpellcastingAction(text);
-      if (extractedSpell) {
-        const parsedSpell = MonsterActionParser.parseAction(extractedSpell, 'actions');
-        entity.actions.push(parsedSpell);
+
+    const textHasSpellcasting = /(?:^|\n)\s*(?:#{1,6}\s*)?(?:\*\*)?Spellcasting\b/i.test(text);
+    if (!textHasSpellcasting) {
+      // If monster text does NOT mention Spellcasting, remove any hallucinated spellcasting action
+      entity.actions = entity.actions.filter((a: any) => !/spellcasting/i.test(a?.name || ''));
+    } else {
+      // If monster text DOES mention Spellcasting, ensure it is present in actions
+      const hasSpellcasting = entity.actions.some((a: any) => /spellcasting/i.test(a?.name || ''));
+      if (!hasSpellcasting) {
+        const extractedSpell = MonsterStatExtractor.extractSpellcastingAction(text);
+        if (extractedSpell) {
+          const parsedSpell = MonsterActionParser.parseAction(extractedSpell, 'actions');
+          entity.actions.push(parsedSpell);
+        }
       }
     }
 
@@ -672,8 +691,7 @@ export class ObjectNormalizer {
       console.log(`  [Chunk 3/4] Normalizing Combat Actions (${sections.actions.length} chars)...`);
       const actionsSchema = {
         actions: [
-          { name: 'Action Name', description: 'Attack Roll or action description...' },
-          { name: 'Spellcasting', description: 'Spellcasting details and spell list...', type: 'spellcasting' }
+          { name: 'Action Name', description: 'Attack Roll or action description...' }
         ],
         reactions: [
           { name: 'Reaction Name', description: 'Reaction trigger and description...' }

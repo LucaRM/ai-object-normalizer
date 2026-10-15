@@ -499,6 +499,10 @@ export class PropertyValidator {
       if (/^(?:legendary\s+action\s+uses|legendary\s+actions|actions?|traits?|reactions?|bonus\s+actions?)\b/i.test(name)) {
         return false;
       }
+      // Drop dummy negative spellcasting entries like "The assassin does not cast spells."
+      if (/spellcasting/i.test(name) && /(?:does\s+not\s+(?:cast|have)|cannot\s+cast|no\s+spells|none\b|n\/a\b)/i.test(desc)) {
+        return false;
+      }
       return true;
     };
 

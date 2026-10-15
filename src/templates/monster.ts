@@ -115,7 +115,7 @@ export const MONSTER_PROMPT_GUIDE = `### SPECIAL INSTRUCTIONS FOR D&D 5E MONSTER
     - multiattack: Array of attack names used in Multiattack (e.g. ["Flame Whip", "Lightning Blade"])
     - cost: Legendary action action cost (e.g. 1 or 2)
     - spells: { atWill?: string[], perDay?: { count: number, spells: string[] }[] }
-21. NEVER omit "Spellcasting"! Always include Spellcasting as an action in "actions", extracting type: 'spellcasting', spellSaveDc, spellcastingAbility, and spells object.
+21. If the monster has a "Spellcasting" action in its text, DO NOT omit it! Extract it into "actions" with type: 'spellcasting', spellSaveDc, spellcastingAbility, and spells. If the monster does NOT have a Spellcasting section in its text, DO NOT include a Spellcasting action.
 22. In 2024 D&D statblocks, ONLY include abilities in savingThrows where Save > natural Ability Mod (e.g. ["Dex +9", "Wis +11"]). DO NOT list abilities where Save == Mod.`;
 
 export const MONSTER_EXAMPLE_PARAGRAPH = `Tiger
