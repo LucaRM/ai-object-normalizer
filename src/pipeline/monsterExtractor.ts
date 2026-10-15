@@ -46,11 +46,13 @@ export class MonsterStatExtractor {
     const savingThrows: string[] = [];
 
     // 1. 2014 explicit line
-    const savesMatch = text.match(/Saving\s+Throws?\s*[\n:]?\s*([^\n;]+)/i);
+    const savesMatch = text.match(/(?:^|\n)\s*(?:[*_]{1,3})?Saving\s+Throws?\s*[:]?\s*(?:[*_]{1,3})?\s*([^\n;]+)/i);
     if (savesMatch) {
       const parts = savesMatch[1].split(',').map(s => s.trim()).filter(Boolean);
       for (const p of parts) {
-        if (!savingThrows.includes(p)) savingThrows.push(p);
+        if (/^(?:Str|Dex|Con|Int|Wis|Cha|Strength|Dexterity|Constitution|Intelligence|Wisdom|Charisma)\s*[+\-]\d+/i.test(p)) {
+          if (!savingThrows.includes(p)) savingThrows.push(p);
+        }
       }
     }
 

@@ -43,7 +43,7 @@ export class TextSplitter {
 
     // Pattern for monster header: Name followed by (Size Type, Alignment)
     // Matches sizes: Tiny, Small, Medium, Large, Huge, Gargantuan (including 2024 "Medium or Small")
-    const monsterHeaderRegex = /(?:^|\n)([A-Z0-9][A-Za-z0-9'\s\-–—/]+?)\s*\n((?:Tiny|Small|Medium|Large|Huge|Gargantuan)(?:\s+or\s+(?:Tiny|Small|Medium|Large|Huge|Gargantuan))?\s+(?:Aberration|Beast|Celestial|Construct|Dragon|Elemental|Fey|Fiend|Giant|Humanoid|Monstrosity|Ooze|Plant|Undead)(?:\s*\([^\)]+\))?[^\n]*)/gi;
+    const monsterHeaderRegex = /(?:^|\n)([A-Z0-9\u00C0-\u024F][A-Za-z0-9\u00C0-\u024F'\u2019\u2018\s\-–—/]+?)\s*\n((?:(?:or|ou)\s+)?(?:Tiny|Small|Medium|Large|Huge|Gargantuan)(?:\s+or\s+(?:Tiny|Small|Medium|Large|Huge|Gargantuan))?\s+(?:Aberration|Beast|Celestial|Construct|Dragon|Elemental|Fey|Fiend|Giant|Humanoid|Monstrosity|Ooze|Plant|Undead)(?:\s*\([^\)]+\))?[^\n]*)/gi;
 
     const matches: Array<{ name: string; fullType: string; startIndex: number }> = [];
     let match: RegExpExecArray | null;

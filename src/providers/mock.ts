@@ -128,7 +128,7 @@ export class MockProvider implements NormalizerProvider {
     let cleaned = text.replace(/\[([^\]]+)\]\([^)]+\)/g, '$1').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
 
     // If text contains multiple monsters, isolate the first monster's stat block
-    const monsterHeaderRegex = /(?:^|\n)([A-Z0-9][A-Za-z0-9'\s\-–—/]+?)\s*\n((?:(?:or|ou)\s+)?(?:Tiny|Small|Medium|Large|Huge|Gargantuan)(?:\s+or\s+(?:Tiny|Small|Medium|Large|Huge|Gargantuan))?\s+(?:Aberration|Beast|Celestial|Construct|Dragon|Elemental|Fey|Fiend|Giant|Humanoid|Monstrosity|Ooze|Plant|Undead)(?:\s*\([^\)]+\))?[^\n]*)/gi;
+    const monsterHeaderRegex = /(?:^|\n)([A-Z0-9\u00C0-\u024F][A-Za-z0-9\u00C0-\u024F'\u2019\u2018\s\-–—/]+?)\s*\n((?:(?:or|ou)\s+)?(?:Tiny|Small|Medium|Large|Huge|Gargantuan)(?:\s+or\s+(?:Tiny|Small|Medium|Large|Huge|Gargantuan))?\s+(?:Aberration|Beast|Celestial|Construct|Dragon|Elemental|Fey|Fiend|Giant|Humanoid|Monstrosity|Ooze|Plant|Undead)(?:\s*\([^\)]+\))?[^\n]*)/gi;
     const matches: number[] = [];
     let m: RegExpExecArray | null;
     while ((m = monsterHeaderRegex.exec(cleaned)) !== null) {
@@ -309,7 +309,8 @@ export class MockProvider implements NormalizerProvider {
       { type: 'actions', regex: /(?:^|\n)\s*(?:#{1,6}\s*)?(?:\*\*)?Actions?:?(?:\*\*)?\s*(?:\n|$)/i },
       { type: 'bonusActions', regex: /(?:^|\n)\s*(?:#{1,6}\s*)?(?:\*\*)?Bonus\s+Actions?:?(?:\*\*)?\s*(?:\n|$)/i },
       { type: 'reactions', regex: /(?:^|\n)\s*(?:#{1,6}\s*)?(?:\*\*)?Reactions?:?(?:\*\*)?\s*(?:\n|$)/i },
-      { type: 'legendaryActions', regex: /(?:^|\n)\s*(?:#{1,6}\s*)?(?:\*\*)?Legendary\s+Actions?:?(?:\*\*)?\s*(?:\n|$)/i }
+      { type: 'legendaryActions', regex: /(?:^|\n)\s*(?:#{1,6}\s*)?(?:\*\*)?Legendary\s+Actions?:?(?:\*\*)?\s*(?:\n|$)/i },
+      { type: 'stop', regex: /(?:^|\n)\s*(?:#{1,6}\s*)?(?:\*\*)?(?:Lair\s+Actions?|Regional\s+Effects?|Habitat:|Treasure:):?(?:\*\*)?\s*(?:\n|$)/i }
     ];
 
     const sectionsFound: Array<{ type: string; start: number; headingIndex: number }> = [];
@@ -336,6 +337,7 @@ export class MockProvider implements NormalizerProvider {
 
     for (let i = 0; i < sectionsFound.length; i++) {
       const current = sectionsFound[i];
+      if (current.type === 'stop') continue;
       const nextStart = i + 1 < sectionsFound.length ? sectionsFound[i + 1].headingIndex : raw.length;
       sectionsContent[current.type] = raw.substring(current.start, nextStart).trim();
     }
@@ -375,15 +377,24 @@ export class MockProvider implements NormalizerProvider {
       if (!line) continue;
 
       // Stop parsing if we hit following non-stat block chapters, habitats, tables or quote markers
-      if (/^(?:Habitat:|Treasure:|Roll on\s|\d+d\d+\b|Rule\s+\d+:|[—–-]\s*[A-Z])/i.test(line)) {
+      if (/^(?:Habitat:|Treasure:|Roll on\s|\d+d\d+\b|Rule\s+\d+:|[—–-]\s*[A-Z]|(?:#{1,6}\s*)?(?:\*\*)?(?:Lair\s+Actions?|Regional\s+Effects?))/i.test(line)) {
         break;
       }
 
-      // Skip generic section intros like "The dragon can take 3 legendary actions..." or "Legendary Action Uses: 3"
-      if (/^the\s+[a-z0-9\s\-]+can\s+take\s+\d+\s+legendary\s+actions/i.test(line)) {
+      // Skip generic section intros or repeated section headings
+      if (/^(?:[*_]{1,3})?\s*(?:traits|special\s+traits|actions?|bonus\s+actions?|reactions?|legendary\s+actions?|mythic\s+actions?):?\s*(?:[*_]{1,3})?$/i.test(line)) {
         continue;
       }
-      if (/^legendary\s+action\s+uses:/i.test(line)) {
+      if (/^(?:[*_]{1,3})?\s*legendary\s+actions?(?:\s+uses)?:/i.test(line)) {
+        continue;
+      }
+      if (/^(?:the\s+[a-z0-9\u00C0-\u024F\s\-–—]+|creature\s+|monster\s+)?can\s+take\s+\d+\s+legendary\s+actions/i.test(line)) {
+        continue;
+      }
+      if (/^only\s+one\s+legendary\s+action\s+(?:option\s+)?can\s+be\s+used\s+at\s+a\s+time/i.test(line)) {
+        continue;
+      }
+      if (/^(?:the\s+[a-z0-9\u00C0-\u024F\s\-–—]+)?regains\s+spent\s+legendary\s+actions/i.test(line)) {
         continue;
       }
 
@@ -395,10 +406,32 @@ export class MockProvider implements NormalizerProvider {
         continue;
       }
 
+      // Check for standalone bold title: **Title.** or **Title**
+      const standaloneTitle = line.match(/^[*_]{2,3}([A-Z0-9\u00C0-\u024F][A-Za-z0-9\u00C0-\u024F'\u2019\u2018"\u201C\u201D`´,:\s\(\)\/\-–—‒―]+?)[.:]?[*_]{2,3}$/);
+      if (standaloneTitle) {
+        const potentialName = standaloneTitle[1].replace(/^[*_]+|[*_]+$/g, '').trim();
+        const nameWithoutParens = potentialName.replace(/\([^)]*\)/g, '').trim();
+        if (
+          potentialName.length <= 60 &&
+          !/[,;!?]/.test(nameWithoutParens) &&
+          !/^(?:Speed|AC|HP|Ability|Score|Mod|Save|Str|Dex|Con|Int|Wis|Cha|The|Such|These|Those|When|If|After|Failure|Success|Trigger|Response)\b/i.test(potentialName)
+        ) {
+          if (current) entries.push(current);
+          current = {
+            name: potentialName,
+            description: ''
+          };
+          continue;
+        }
+      }
+
       // Check for Title. Description or **Title.** Description or Title (Extra). Description
-      const titleMatch = line.match(/^(?:\*\*)?([A-Z0-9][A-Za-z0-9',:\s\(\)\/\-–—]+?)(?:\*\*)?\.\s+(.+)$/);
+      // Supports standard ASCII apostrophe ' as well as typographic / curly ’ (\u2019) and ‘ (\u2018)
+      const titleMatch = line.match(
+        /^(?:[*_]{1,3})?([A-Z0-9\u00C0-\u024F][A-Za-z0-9\u00C0-\u024F'\u2019\u2018"\u201C\u201D`´,:\s\(\)\/\-–—‒―]+?)(?:[*_]{1,3}\s*[.:]|[.:]\s*[*_]{1,3}|[.:])\s+(.+)$/
+      );
       if (titleMatch) {
-        const potentialName = titleMatch[1].replace(/^\*\*|\*\*$/g, '').trim();
+        const potentialName = titleMatch[1].replace(/^[*_]+|[*_]+$/g, '').trim();
         const nameWithoutParens = potentialName.replace(/\([^)]*\)/g, '').trim();
         if (
           potentialName.length <= 60 &&
