@@ -4,6 +4,7 @@ import { WEAPON_TEMPLATE } from '../templates/weapon';
 import { SPELL_TEMPLATE } from '../templates/spell';
 import { MAGICAL_ITEM_TEMPLATE } from '../templates/magicalItem';
 import { MonsterStatExtractor } from '../pipeline/monsterExtractor';
+import { MonsterActionParser } from '../pipeline/actionParser';
 
 export class MockProvider implements NormalizerProvider {
   public name = 'Deterministic / Rule-Based Extractor';
@@ -166,17 +167,22 @@ export class MockProvider implements NormalizerProvider {
       }
     }
 
+    const customType = MonsterStatExtractor.extractCustomType(cleaned) || `${size} ${type}`;
+
     // AC: Matches "Armor Class 16", "AC 16", "AC 16 Initiative +3 (13)"
     const acMatch = cleaned.match(/(?:Armor Class|AC)\s*[\n:]?\s*(\d+)/i);
     const armorClass = acMatch ? parseInt(acMatch[1], 10) : 10;
+    const armorClassType = MonsterStatExtractor.extractArmorClassType(cleaned);
 
     // HP: Matches "Hit Points 66", "HP 66 (12d8 + 12)"
     const hpMatch = cleaned.match(/(?:Hit Points|HP)\s*[\n:]?\s*(\d+)/i);
     const hitPoints = hpMatch ? parseInt(hpMatch[1], 10) : 10;
+    const hitDie = MonsterStatExtractor.extractHitDie(cleaned);
 
     // Speed
     const speedMatch = cleaned.match(/Speed:?\s*([^\n]+)/i);
-    const speed = speedMatch ? speedMatch[1].trim() : '30 ft.';
+    const speedRaw = speedMatch ? speedMatch[1].trim() : '30 ft.';
+    const speed = MonsterStatExtractor.extractSpeedObject(speedRaw);
 
     // Abilities: Matches vertical tables ("Str\n26\n+8\n+8") as well as horizontal ("STR 26")
     const abilities: Record<string, number> = {
@@ -203,6 +209,7 @@ export class MockProvider implements NormalizerProvider {
 
     // Initiative: Matches "Initiative +16 (26)", "AC 16 Initiative +3 (13)", or derives from Dex
     const initiative = MonsterStatExtractor.extractInitiative(cleaned, abilities.dexterity);
+    const initiativeBonus = MonsterStatExtractor.extractInitiativeBonus(cleaned, abilities.dexterity);
 
     // Saving Throws: Matches both 2014 explicit format and 2024 Ability Score Mod Save table
     const savingThrows = MonsterStatExtractor.extractSavingThrows(cleaned);
@@ -211,45 +218,20 @@ export class MockProvider implements NormalizerProvider {
     const skillsMatch = cleaned.match(/Skills\s*[\n:]?\s*([^\n]+)/i);
     const skills = skillsMatch ? skillsMatch[1].split(',').map(s => s.trim()) : [];
 
-    // Resistances / Immunities (Supports 2014 & 2024 D&D Beyond formats)
-    const resMatch = cleaned.match(/(?:Damage\s+Resistances|Resistances)\s*[\n:]?\s*([^\n;]+)/i);
-    const damageResistances = resMatch ? resMatch[1].trim() : '';
-
-    let damageImmunities = '';
-    let conditionImmunities = '';
-
-    const dmgImmMatch = cleaned.match(/Damage\s+Immunities\s*[\n:]?\s*([^\n;]+)/i);
-    if (dmgImmMatch) damageImmunities = dmgImmMatch[1].trim();
-
-    const condImmMatch = cleaned.match(/Condition\s+Immunities\s*[\n:]?\s*([^\n]+)/i);
-    if (condImmMatch) conditionImmunities = condImmMatch[1].trim();
-
-    const unifiedImmMatch = cleaned.match(/(?:^|\n)Immunities\s*[\n:]?\s*([^\n]+)/i);
-    if (unifiedImmMatch) {
-      const fullImmText = unifiedImmMatch[1].trim();
-      if (fullImmText.includes(';')) {
-        const parts = fullImmText.split(';').map(p => p.trim());
-        damageImmunities = damageImmunities || parts[0];
-        conditionImmunities = conditionImmunities || parts[1];
-      } else {
-        const conditionsList = ['blinded', 'charmed', 'deafened', 'exhaustion', 'frightened', 'grappled', 'incapacitated', 'invisible', 'paralyzed', 'petrified', 'poisoned', 'prone', 'restrained', 'stunned', 'unconscious'];
-        const items = fullImmText.split(',').map(s => s.trim().toLowerCase());
-        const hasCondition = items.some(it => conditionsList.includes(it));
-        if (hasCondition) {
-          conditionImmunities = conditionImmunities || fullImmText;
-        } else {
-          damageImmunities = damageImmunities || fullImmText;
-        }
-      }
-    }
+    // Resistances / Immunities / Vulnerabilities
+    const damageLists = MonsterStatExtractor.extractDamageLists(cleaned);
 
     // Senses
     const sensesMatch = cleaned.match(/Senses\s*[\n:]?\s*([^\n]+)/i);
     const senses = sensesMatch ? sensesMatch[1].trim() : 'Passive Perception 10';
+    const passivePerception = MonsterStatExtractor.extractPassivePerception(cleaned, senses, abilities.wisdom);
 
     // Languages
     const langMatch = cleaned.match(/Languages\s*[\n:]?\s*([^\n]+)/i);
     const languages = langMatch ? langMatch[1].trim() : '—';
+
+    // Gear
+    const gear = MonsterStatExtractor.extractGear(cleaned);
 
     // Challenge / CR: Matches "Challenge 4", "CR 4", "CR 4 (XP 1,100; PB +2)"
     const crMatch = cleaned.match(/(?:Challenge|CR)\s*[\n:]?\s*(\d+(?:\/\d+)?)/i);
@@ -261,31 +243,46 @@ export class MockProvider implements NormalizerProvider {
     // High precision deterministic section parsing for Traits, Actions, Reactions, Legendary Actions
     const sections = this.parseMonsterSections(cleaned);
 
+    const traits = sections.traits.map(t => MonsterActionParser.parseAction(t, 'traits'));
+    const actions = sections.actions.map(a => MonsterActionParser.parseAction(a, 'actions'));
+    const bonusActions = sections.bonusActions.map(b => MonsterActionParser.parseAction(b, 'bonusActions'));
+    const reactions = sections.reactions.map(r => MonsterActionParser.parseAction(r, 'reactions'));
+    const legendaryActions = sections.legendaryActions.map(l => MonsterActionParser.parseAction(l, 'legendaryActions'));
+    const legendaryActionUses = MonsterStatExtractor.extractLegendaryActionUses(cleaned) ?? (legendaryActions.length > 0 ? 3 : undefined);
+
     const result: any = {
       ...MONSTER_TEMPLATE,
       name,
       type,
+      customType,
       size,
       alignment,
       armorClass,
+      ...(armorClassType && { armorClassType }),
       initiative,
+      initiativeBonus,
       hitPoints,
+      ...(hitDie && { hitDie }),
       speed,
       abilities,
       savingThrows,
       skills,
-      damageResistances,
-      damageImmunities,
-      conditionImmunities,
+      damageResistances: damageLists.damageResistances,
+      damageImmunities: damageLists.damageImmunities,
+      damageVulnerabilities: damageLists.damageVulnerabilities,
+      conditionImmunities: damageLists.conditionImmunities,
       senses,
+      passivePerception,
       languages,
+      ...(gear.length > 0 && { gear }),
       challengeRating,
       proficiencyBonus,
-      traits: sections.traits,
-      actions: sections.actions,
-      bonusActions: sections.bonusActions,
-      reactions: sections.reactions,
-      legendaryActions: sections.legendaryActions,
+      traits,
+      actions,
+      bonusActions,
+      reactions,
+      legendaryActions,
+      ...(legendaryActionUses !== undefined && { legendaryActionUses }),
       translations: {}
     };
 
@@ -414,7 +411,7 @@ export class MockProvider implements NormalizerProvider {
         if (
           potentialName.length <= 60 &&
           !/[,;!?]/.test(nameWithoutParens) &&
-          !/^(?:Speed|AC|HP|Ability|Score|Mod|Save|Str|Dex|Con|Int|Wis|Cha|The|Such|These|Those|When|If|After|Failure|Success|Trigger|Response)\b/i.test(potentialName)
+          !/^(?:Speed|AC|HP|Ability|Score|Mod|Save|Str|Dex|Con|Int|Wis|Cha|The|Such|These|Those|When|If|After|Failure|Success|Trigger|Response|At\s+Will|Constant|\d+\/Day|\d+(?:st|nd|rd|th)\s+level|Cantrips)\b/i.test(potentialName)
         ) {
           if (current) entries.push(current);
           current = {
@@ -436,7 +433,7 @@ export class MockProvider implements NormalizerProvider {
         if (
           potentialName.length <= 60 &&
           !/[,;!?]/.test(nameWithoutParens) &&
-          !/^(?:Speed|AC|HP|Ability|Score|Mod|Save|Str|Dex|Con|Int|Wis|Cha|The|Such|These|Those|When|If|After|Failure|Success|Trigger|Response)\b/i.test(potentialName)
+          !/^(?:Speed|AC|HP|Ability|Score|Mod|Save|Str|Dex|Con|Int|Wis|Cha|The|Such|These|Those|When|If|After|Failure|Success|Trigger|Response|At\s+Will|Constant|\d+\/Day|\d+(?:st|nd|rd|th)\s+level|Cantrips)\b/i.test(potentialName)
         ) {
           if (current) entries.push(current);
           current = {

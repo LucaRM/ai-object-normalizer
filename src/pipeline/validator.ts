@@ -8,6 +8,7 @@ import {
 } from '../types';
 import { ObjectIdHelper } from './objectId';
 import { MonsterStatExtractor } from './monsterExtractor';
+import { MonsterActionParser } from './actionParser';
 
 export class PropertyValidator {
   /**
@@ -411,27 +412,14 @@ export class PropertyValidator {
 
     // 6. Speed
     tickCheck();
-    if (typeof data.speed !== 'string') {
-      data.speed = String(data.speed || '30 ft.');
-      coercedFields.push({
-        path: 'speed',
-        original: data.speed,
-        coerced: '30 ft.',
-        reason: 'Coerced speed to string'
-      });
-    } else {
-      // Clean up parenthetical like "40 ft. (8 spaces)" -> keep "40 ft." or full
-      const speedMatch = data.speed.match(/^(\d+\s*ft\.)/i);
-      if (speedMatch && data.speed.includes('spaces')) {
-        const cleanSpeed = speedMatch[1];
-        coercedFields.push({
-          path: 'speed',
-          original: data.speed,
-          coerced: cleanSpeed,
-          reason: 'Cleaned speed to standard ft format'
-        });
-        data.speed = cleanSpeed;
+    if (typeof data.speed === 'object' && data.speed !== null) {
+      if (!data.speed.walk && !data.speed.fly && !data.speed.swim && !data.speed.climb && !data.speed.burrow) {
+        data.speed.walk = 30;
       }
+    } else if (typeof data.speed === 'string') {
+      data.speed = MonsterStatExtractor.extractSpeedObject(data.speed);
+    } else {
+      data.speed = { walk: 30 };
     }
 
     // 7. Abilities
@@ -478,49 +466,67 @@ export class PropertyValidator {
       data.proficiencyBonus = 2;
     }
 
-    // 10. Arrays (skills, savingThrows, traits, actions, reactions, legendaryActions, books)
+    // 10. Arrays (skills, savingThrows, traits, actions, bonusActions, reactions, legendaryActions, books)
     tickCheck();
     data.skills = Array.isArray(data.skills) ? data.skills : (typeof data.skills === 'string' ? data.skills.split(',').map((s: string) => s.trim()).filter(Boolean) : []);
     data.savingThrows = Array.isArray(data.savingThrows) ? data.savingThrows : [];
-    data.traits = Array.isArray(data.traits) ? data.traits : [];
-    data.reactions = Array.isArray(data.reactions) ? data.reactions : [];
-    data.legendaryActions = Array.isArray(data.legendaryActions) ? data.legendaryActions : [];
 
-    // Ensure actions is array of { name, description }
-    tickCheck();
-    if (Array.isArray(data.actions)) {
-      data.actions = data.actions.map((act: any, i: number) => {
-        if (typeof act === 'string') {
-          const dotIndex = act.indexOf('.');
-          if (dotIndex > 0) {
-            const name = act.substring(0, dotIndex).trim();
-            const description = act.substring(dotIndex + 1).trim();
-            coercedFields.push({
-              path: `actions[${i}]`,
-              original: act,
-              coerced: { name, description },
-              reason: 'Converted string action to structured { name, description }'
-            });
-            return { name, description };
-          }
-          return { name: `Action ${i + 1}`, description: act };
-        }
-        return {
-          name: act.name ? String(act.name).trim() : `Action ${i + 1}`,
-          description: act.description ? String(act.description).trim() : ''
-        };
-      });
-    } else {
-      data.actions = [];
+    const enrichAction = (act: any, i: number, category: string) => {
+      if (typeof act === 'string') {
+        const dotIndex = act.indexOf('.');
+        const name = dotIndex > 0 ? act.substring(0, dotIndex).trim() : `Action ${i + 1}`;
+        const description = dotIndex > 0 ? act.substring(dotIndex + 1).trim() : act;
+        return MonsterActionParser.parseAction({ name, description }, category);
+      }
+      if (act && typeof act === 'object') {
+        const name = act.name ? String(act.name).trim() : `Action ${i + 1}`;
+        const description = act.description ? String(act.description).trim() : '';
+        return MonsterActionParser.parseAction({ ...act, name, description }, category);
+      }
+      return MonsterActionParser.parseAction({ name: `Action ${i + 1}`, description: '' }, category);
+    };
+
+    data.traits = Array.isArray(data.traits) ? data.traits.map((t: any, i: number) => enrichAction(t, i, 'traits')) : [];
+    data.actions = Array.isArray(data.actions) ? data.actions.map((a: any, i: number) => enrichAction(a, i, 'actions')) : [];
+    data.bonusActions = Array.isArray(data.bonusActions) ? data.bonusActions.map((b: any, i: number) => enrichAction(b, i, 'bonusActions')) : [];
+    data.reactions = Array.isArray(data.reactions) ? data.reactions.map((r: any, i: number) => enrichAction(r, i, 'reactions')) : [];
+    data.legendaryActions = Array.isArray(data.legendaryActions) ? data.legendaryActions.map((l: any, i: number) => enrichAction(l, i, 'legendaryActions')) : [];
+
+    // 10b. Core combat automation properties
+    if (data.initiativeBonus === undefined) {
+      data.initiativeBonus = MonsterStatExtractor.extractInitiativeBonus(data.initiative, data.abilities?.dexterity);
+    }
+    if (data.passivePerception === undefined) {
+      data.passivePerception = MonsterStatExtractor.extractPassivePerception(data.senses, data.senses, data.abilities?.wisdom);
+    }
+    if (data.gear === undefined) {
+      data.gear = [];
+    } else if (!Array.isArray(data.gear)) {
+      data.gear = typeof data.gear === 'string' ? data.gear.split(',').map((s: string) => s.trim()).filter(Boolean) : [];
+    }
+    if (!data.customType && data.size && data.type) {
+      data.customType = `${data.size} ${data.type}`;
+    }
+    if (data.legendaryActions.length > 0 && data.legendaryActionUses === undefined) {
+      data.legendaryActionUses = 3;
     }
 
     // 11. Books array
     this.ensureBooksArray(data, options, coercedFields, tickCheck);
 
-    // 12. String immunities and resistances
-    data.damageResistances = data.damageResistances || '';
-    data.damageImmunities = data.damageImmunities || '';
-    data.conditionImmunities = data.conditionImmunities || '';
+    // 12. Clean arrays for immunities, resistances, vulnerabilities
+    const toCleanArray = (val: any) => {
+      if (Array.isArray(val)) return val.map((s: any) => String(s).trim()).filter(Boolean);
+      if (typeof val === 'string' && val.trim().length > 0 && val.trim() !== '—') {
+        return val.split(',').map((s: string) => s.trim()).filter(Boolean);
+      }
+      return [];
+    };
+
+    data.damageResistances = toCleanArray(data.damageResistances);
+    data.damageImmunities = toCleanArray(data.damageImmunities);
+    data.damageVulnerabilities = toCleanArray(data.damageVulnerabilities);
+    data.conditionImmunities = toCleanArray(data.conditionImmunities);
     data.languages = data.languages || '—';
 
     // 13. Translations check if targetLocale is set

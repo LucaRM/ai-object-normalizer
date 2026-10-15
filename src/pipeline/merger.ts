@@ -75,6 +75,9 @@ export class EntityMerger {
     if (parts.legendary) {
       const legList = parts.legendary.legendaryActions || (Array.isArray(parts.legendary) ? parts.legendary : []);
       mergeUniqueByName(merged.legendaryActions, legList);
+      if (parts.legendary.legendaryActionUses) {
+        merged.legendaryActionUses = parts.legendary.legendaryActionUses;
+      }
     }
 
     // 4. Merge Embedded Translations across sections
