@@ -22,7 +22,7 @@ export class MockProvider implements NormalizerProvider {
     this.available = state;
   }
 
-  async normalize(text: string, schema: any, options: NormalizeOptions): Promise<string> {
+  async normalize(text: string, schema: any, options: NormalizeOptions = {}): Promise<string> {
     // 0. Sectional sub-schemas (chunked monster extraction)
     if (schema && schema.traits !== undefined && schema.armorClass === undefined) {
       return this.extractSectionalTraits(text);
@@ -40,10 +40,15 @@ export class MockProvider implements NormalizerProvider {
       return this.extractSectionalLegendary(text);
     }
 
-    const tmpl = (options.template || '').toLowerCase().trim();
+    const tmpl = (options?.template || '').toLowerCase().trim();
 
     // 1. Monster
-    if (tmpl === 'monster' || text.toLowerCase().includes('armor class') || text.toLowerCase().includes('hit points')) {
+    if (
+      tmpl === 'monster' ||
+      /\b(?:armor\s+class|ac)\s*[\n:]?\s*\d+/i.test(text) ||
+      /\b(?:hit\s+points|hp)\s*[\n:]?\s*\d+/i.test(text) ||
+      /\b(?:challenge|cr)\s*[\n:]?\s*\d+/i.test(text)
+    ) {
       return this.extractMonsterStatBlock(text, schema, options);
     }
 
@@ -211,8 +216,11 @@ export class MockProvider implements NormalizerProvider {
     const initiative = MonsterStatExtractor.extractInitiative(cleaned, abilities.dexterity);
     const initiativeBonus = MonsterStatExtractor.extractInitiativeBonus(cleaned, abilities.dexterity);
 
-    // Saving Throws: Matches both 2014 explicit format and 2024 Ability Score Mod Save table
-    const savingThrows = MonsterStatExtractor.extractSavingThrows(cleaned);
+    // Saving Throws: Matches both 2014 explicit format and 2024 Ability Score Mod Save table (proficient only)
+    const savingThrows = MonsterStatExtractor.filterProficientSavingThrows(
+      MonsterStatExtractor.extractSavingThrows(cleaned),
+      abilities
+    );
 
     // Skills
     const skillsMatch = cleaned.match(/Skills\s*[\n:]?\s*([^\n]+)/i);
@@ -243,11 +251,34 @@ export class MockProvider implements NormalizerProvider {
     // High precision deterministic section parsing for Traits, Actions, Reactions, Legendary Actions
     const sections = this.parseMonsterSections(cleaned);
 
-    const traits = sections.traits.map(t => MonsterActionParser.parseAction(t, 'traits'));
-    const actions = sections.actions.map(a => MonsterActionParser.parseAction(a, 'actions'));
-    const bonusActions = sections.bonusActions.map(b => MonsterActionParser.parseAction(b, 'bonusActions'));
-    const reactions = sections.reactions.map(r => MonsterActionParser.parseAction(r, 'reactions'));
-    const legendaryActions = sections.legendaryActions.map(l => MonsterActionParser.parseAction(l, 'legendaryActions'));
+    const isActionValid = (act: any) => {
+      if (!act || typeof act !== 'object') return false;
+      const desc = (act.description || '').trim();
+      if (!desc) return false;
+      const actName = (act.name || '').trim();
+      if (/^(?:legendary\s+action\s+uses|legendary\s+actions|actions?|traits?|reactions?|bonus\s+actions?)\b/i.test(actName)) {
+        return false;
+      }
+      if (/spellcasting/i.test(actName) && /(?:does\s+not\s+(?:cast|have)|cannot\s+cast|no\s+spells|none\b|n\/a\b)/i.test(desc)) {
+        return false;
+      }
+      return true;
+    };
+
+    const traits = sections.traits.map(t => MonsterActionParser.parseAction(t, 'traits')).filter(isActionValid);
+    const actions = sections.actions.map(a => MonsterActionParser.parseAction(a, 'actions')).filter(isActionValid);
+    const bonusActions = sections.bonusActions.map(b => MonsterActionParser.parseAction(b, 'bonusActions')).filter(isActionValid);
+    const reactions = sections.reactions.map(r => MonsterActionParser.parseAction(r, 'reactions')).filter(isActionValid);
+    const legendaryActions = sections.legendaryActions.map(l => MonsterActionParser.parseAction(l, 'legendaryActions')).filter(isActionValid);
+
+    const textHasSpellcasting = /(?:^|\n)\s*(?:#{1,6}\s*)?(?:\*\*)?Spellcasting\b/i.test(cleaned);
+    if (textHasSpellcasting && !actions.some(a => /spellcasting/i.test(a.name))) {
+      const extractedSpell = MonsterStatExtractor.extractSpellcastingAction(cleaned);
+      if (extractedSpell) {
+        actions.push(MonsterActionParser.parseAction(extractedSpell, 'actions'));
+      }
+    }
+
     const legendaryActionUses = MonsterStatExtractor.extractLegendaryActionUses(cleaned) ?? (legendaryActions.length > 0 ? 3 : undefined);
 
     const result: any = {
@@ -451,7 +482,16 @@ export class MockProvider implements NormalizerProvider {
     }
 
     if (current) entries.push(current);
-    return entries;
+
+    return entries.filter(e => {
+      if (!e || !e.name) return false;
+      const desc = (e.description || '').trim();
+      if (!desc) return false;
+      if (/^(?:legendary\s+action\s+uses|legendary\s+actions|actions?|traits?|reactions?|bonus\s+actions?)\b/i.test(e.name.trim())) {
+        return false;
+      }
+      return true;
+    });
   }
 
   private extractGenericObject(text: string, schema: any, options: NormalizeOptions): string {
@@ -474,27 +514,31 @@ export class MockProvider implements NormalizerProvider {
     const sections = this.parseMonsterSections(text);
     if (sections.bonusActions.length > 0 || sections.reactions.length > 0) {
       return JSON.stringify({
-        actions: sections.actions,
-        bonusActions: sections.bonusActions,
-        reactions: sections.reactions
+        actions: sections.actions.filter(a => a.description && a.description.trim().length > 0),
+        bonusActions: sections.bonusActions.filter(b => b.description && b.description.trim().length > 0),
+        reactions: sections.reactions.filter(r => r.description && r.description.trim().length > 0)
       }, null, 2);
     }
-    const actions = this.parseEntries(text);
+    const actions = this.parseEntries(text).filter(a => a.description && a.description.trim().length > 0);
     return JSON.stringify({ actions }, null, 2);
   }
 
   private extractSectionalBonusActions(text: string): string {
-    const bonusActions = this.parseEntries(text);
+    const bonusActions = this.parseEntries(text).filter(b => b.description && b.description.trim().length > 0);
     return JSON.stringify({ bonusActions }, null, 2);
   }
 
   private extractSectionalLegendary(text: string): string {
-    const legendaryActions = this.parseEntries(text);
-    return JSON.stringify({ legendaryActions }, null, 2);
+    const legendaryActions = this.parseEntries(text).filter(l => l.description && l.description.trim().length > 0);
+    const legendaryActionUses = MonsterStatExtractor.extractLegendaryActionUses(text) ?? (legendaryActions.length > 0 ? 3 : undefined);
+    return JSON.stringify({
+      legendaryActions,
+      ...(legendaryActionUses !== undefined && { legendaryActionUses })
+    }, null, 2);
   }
 
   private extractSectionalReactions(text: string): string {
-    const reactions = this.parseEntries(text);
+    const reactions = this.parseEntries(text).filter(r => r.description && r.description.trim().length > 0);
     return JSON.stringify({ reactions }, null, 2);
   }
 }
