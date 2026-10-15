@@ -490,11 +490,23 @@ export class PropertyValidator {
       return MonsterActionParser.parseAction({ name: `Action ${i + 1}`, description: '' }, category);
     };
 
-    data.traits = Array.isArray(data.traits) ? data.traits.map((t: any, i: number) => enrichAction(t, i, 'traits')) : [];
-    data.actions = Array.isArray(data.actions) ? data.actions.map((a: any, i: number) => enrichAction(a, i, 'actions')) : [];
-    data.bonusActions = Array.isArray(data.bonusActions) ? data.bonusActions.map((b: any, i: number) => enrichAction(b, i, 'bonusActions')) : [];
-    data.reactions = Array.isArray(data.reactions) ? data.reactions.map((r: any, i: number) => enrichAction(r, i, 'reactions')) : [];
-    data.legendaryActions = Array.isArray(data.legendaryActions) ? data.legendaryActions.map((l: any, i: number) => enrichAction(l, i, 'legendaryActions')) : [];
+    const isActionValid = (act: any) => {
+      if (!act || typeof act !== 'object') return false;
+      const desc = (act.description || '').trim();
+      if (!desc) return false;
+      const name = (act.name || '').trim();
+      // Drop introductory text (e.g. "Legendary Action Uses: 3 (4 in Lair)") or generic placeholder entries with no text
+      if (/^(?:legendary\s+action\s+uses|legendary\s+actions|actions?|traits?|reactions?|bonus\s+actions?)\b/i.test(name)) {
+        return false;
+      }
+      return true;
+    };
+
+    data.traits = Array.isArray(data.traits) ? data.traits.map((t: any, i: number) => enrichAction(t, i, 'traits')).filter(isActionValid) : [];
+    data.actions = Array.isArray(data.actions) ? data.actions.map((a: any, i: number) => enrichAction(a, i, 'actions')).filter(isActionValid) : [];
+    data.bonusActions = Array.isArray(data.bonusActions) ? data.bonusActions.map((b: any, i: number) => enrichAction(b, i, 'bonusActions')).filter(isActionValid) : [];
+    data.reactions = Array.isArray(data.reactions) ? data.reactions.map((r: any, i: number) => enrichAction(r, i, 'reactions')).filter(isActionValid) : [];
+    data.legendaryActions = Array.isArray(data.legendaryActions) ? data.legendaryActions.map((l: any, i: number) => enrichAction(l, i, 'legendaryActions')).filter(isActionValid) : [];
 
     // 10b. Core combat automation properties
     if (data.initiativeBonus === undefined || (data.initiative && typeof data.initiative === 'string' && data.initiative.includes('+') && data.initiativeBonus === Math.floor(((data.abilities?.dexterity || 10) - 10) / 2))) {

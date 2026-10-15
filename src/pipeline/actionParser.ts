@@ -211,7 +211,7 @@ export class MonsterActionParser {
     }
 
     // 7. Costs (for legendary actions)
-    if (category === 'legendaryActions' && action.cost === undefined) {
+    if (category === 'legendaryActions' && (action.cost === undefined || action.cost === 0)) {
       const costMatch = name.match(/\((?:Costs?\s+)?(\d+)\s+actions?\)/i) || desc.match(/\bcosts?\s+(\d+)\s+actions?\b/i);
       action.cost = costMatch ? parseInt(costMatch[1], 10) : 1;
     }

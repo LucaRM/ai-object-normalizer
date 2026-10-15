@@ -28,6 +28,13 @@ export class EntityMerger {
       if (!Array.isArray(source)) return;
       for (const item of source) {
         if (!item || !item.name) continue;
+        const desc = (item.description || '').trim();
+        // Drop empty cards or introductory headers
+        if (!desc) continue;
+        if (/^(?:legendary\s+action\s+uses|legendary\s+actions|actions?|traits?|reactions?|bonus\s+actions?)\b/i.test(item.name.trim())) {
+          continue;
+        }
+
         const existingIdx = target.findIndex(
           t => t.name && t.name.toLowerCase().trim() === item.name.toLowerCase().trim()
         );
