@@ -114,7 +114,9 @@ export const MONSTER_PROMPT_GUIDE = `### SPECIAL INSTRUCTIONS FOR D&D 5E MONSTER
     - riderEffect: Brief rider effect text (e.g. "pull up to 25 ft.")
     - multiattack: Array of attack names used in Multiattack (e.g. ["Flame Whip", "Lightning Blade"])
     - cost: Legendary action action cost (e.g. 1 or 2)
-    - spells: { atWill?: string[], perDay?: { count: number, spells: string[] }[] }`;
+    - spells: { atWill?: string[], perDay?: { count: number, spells: string[] }[] }
+21. NEVER omit "Spellcasting"! Always include Spellcasting as an action in "actions", extracting type: 'spellcasting', spellSaveDc, spellcastingAbility, and spells object.
+22. In 2024 D&D statblocks, ONLY include abilities in savingThrows where Save > natural Ability Mod (e.g. ["Dex +9", "Wis +11"]). DO NOT list abilities where Save == Mod.`;
 
 export const MONSTER_EXAMPLE_PARAGRAPH = `Tiger
 Large Beast, Unaligned

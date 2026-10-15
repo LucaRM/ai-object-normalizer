@@ -15,6 +15,7 @@ import { EntitySectioner } from './pipeline/sectioner';
 import { EntityMerger } from './pipeline/merger';
 import { FreeTranslator } from './pipeline/translator';
 import { MonsterStatExtractor } from './pipeline/monsterExtractor';
+import { MonsterActionParser } from './pipeline/actionParser';
 import { getTemplate } from './templates';
 
 export class ObjectNormalizer {
@@ -224,8 +225,22 @@ export class ObjectNormalizer {
     if (!entity.initiative || typeof entity.initiative !== 'string' || entity.initiative.trim().length === 0) {
       entity.initiative = MonsterStatExtractor.extractInitiative(text, entity.abilities?.dexterity);
     }
+    // Explicit initiative bonus: parse from entity.initiative or raw text
+    entity.initiativeBonus = MonsterStatExtractor.extractInitiativeBonus(entity.initiative || text, entity.abilities?.dexterity);
 
-    // 2. Saving Throws: If LLM returned empty [] (as 2024 blocks embed saves in ability table), extract from text
+    // 2. Hit Die formula: extract parenthetical formula (e.g. "29d10 + 174" from "HP 333 (29d10 + 174)")
+    if (!entity.hitDie || typeof entity.hitDie !== 'string' || entity.hitDie.trim().length === 0) {
+      const extractedHitDie = MonsterStatExtractor.extractHitDie(text);
+      if (extractedHitDie) {
+        entity.hitDie = extractedHitDie;
+      }
+    }
+
+    // 3. Saving Throws: Filter out non-proficient saves (where Save == natural ability modifier)
+    if (Array.isArray(entity.savingThrows) && entity.savingThrows.length > 0) {
+      entity.savingThrows = MonsterStatExtractor.filterProficientSavingThrows(entity.savingThrows, entity.abilities);
+    }
+    // If savingThrows is empty (as 2024 blocks embed saves in ability table), extract from text
     if (!Array.isArray(entity.savingThrows) || entity.savingThrows.length === 0) {
       const extractedSaves = MonsterStatExtractor.extractSavingThrows(text);
       if (extractedSaves.length > 0) {
@@ -233,12 +248,43 @@ export class ObjectNormalizer {
       }
     }
 
-    // 3. Clean type & size (eliminates "or Medium humanoid" -> "Humanoid")
+    // 4. Legendary Action Uses: Extract top-level count (e.g. 3 from "Legendary Action Uses: 3 (4 in Lair)")
+    const legUses = MonsterStatExtractor.extractLegendaryActionUses(text);
+    if (legUses !== undefined) {
+      entity.legendaryActionUses = legUses;
+    } else if (Array.isArray(entity.legendaryActions) && entity.legendaryActions.length > 0 && entity.legendaryActionUses === undefined) {
+      entity.legendaryActionUses = 3;
+    }
+
+    // 5. Spellcasting Action: Ensure Spellcasting is never omitted from actions
+    if (!Array.isArray(entity.actions)) {
+      entity.actions = [];
+    }
+    const hasSpellcasting = entity.actions.some((a: any) => /spellcasting/i.test(a?.name || ''));
+    if (!hasSpellcasting) {
+      const extractedSpell = MonsterStatExtractor.extractSpellcastingAction(text);
+      if (extractedSpell) {
+        const parsedSpell = MonsterActionParser.parseAction(extractedSpell, 'actions');
+        entity.actions.push(parsedSpell);
+      }
+    }
+
+    // 6. Clean type & size (eliminates "or Medium humanoid" -> "Humanoid")
     if (entity.type) {
       entity.type = MonsterStatExtractor.cleanType(entity.type);
     }
     if (entity.size) {
       entity.size = MonsterStatExtractor.cleanSize(entity.size);
+    }
+
+    // 7. Armor Class Type & Custom Type
+    if (!entity.armorClassType) {
+      const acType = MonsterStatExtractor.extractArmorClassType(text);
+      if (acType) entity.armorClassType = acType;
+    }
+    if (!entity.customType) {
+      const cType = MonsterStatExtractor.extractCustomType(text);
+      if (cType) entity.customType = cType;
     }
   }
 
@@ -626,7 +672,8 @@ export class ObjectNormalizer {
       console.log(`  [Chunk 3/4] Normalizing Combat Actions (${sections.actions.length} chars)...`);
       const actionsSchema = {
         actions: [
-          { name: 'Action Name', description: 'Attack Roll or action description...' }
+          { name: 'Action Name', description: 'Attack Roll or action description...' },
+          { name: 'Spellcasting', description: 'Spellcasting details and spell list...', type: 'spellcasting' }
         ],
         reactions: [
           { name: 'Reaction Name', description: 'Reaction trigger and description...' }
@@ -676,6 +723,7 @@ export class ObjectNormalizer {
     if (sections.legendary) {
       console.log(`  [Chunk 4/4] Normalizing Legendary Actions (${sections.legendary.length} chars)...`);
       const legSchema = {
+        legendaryActionUses: 3,
         legendaryActions: [
           { name: 'Option Name', description: 'Legendary action cost and description...' }
         ]

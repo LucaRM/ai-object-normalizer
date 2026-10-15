@@ -409,6 +409,9 @@ export class PropertyValidator {
         errors.push(`Invalid hitPoints: ${data.hitPoints}`);
       }
     }
+    if (data.hitDie && typeof data.hitDie === 'string') {
+      data.hitDie = data.hitDie.trim();
+    }
 
     // 6. Speed
     tickCheck();
@@ -469,7 +472,8 @@ export class PropertyValidator {
     // 10. Arrays (skills, savingThrows, traits, actions, bonusActions, reactions, legendaryActions, books)
     tickCheck();
     data.skills = Array.isArray(data.skills) ? data.skills : (typeof data.skills === 'string' ? data.skills.split(',').map((s: string) => s.trim()).filter(Boolean) : []);
-    data.savingThrows = Array.isArray(data.savingThrows) ? data.savingThrows : [];
+    const rawSaves = Array.isArray(data.savingThrows) ? data.savingThrows : [];
+    data.savingThrows = MonsterStatExtractor.filterProficientSavingThrows(rawSaves, data.abilities);
 
     const enrichAction = (act: any, i: number, category: string) => {
       if (typeof act === 'string') {
@@ -493,7 +497,7 @@ export class PropertyValidator {
     data.legendaryActions = Array.isArray(data.legendaryActions) ? data.legendaryActions.map((l: any, i: number) => enrichAction(l, i, 'legendaryActions')) : [];
 
     // 10b. Core combat automation properties
-    if (data.initiativeBonus === undefined) {
+    if (data.initiativeBonus === undefined || (data.initiative && typeof data.initiative === 'string' && data.initiative.includes('+') && data.initiativeBonus === Math.floor(((data.abilities?.dexterity || 10) - 10) / 2))) {
       data.initiativeBonus = MonsterStatExtractor.extractInitiativeBonus(data.initiative, data.abilities?.dexterity);
     }
     if (data.passivePerception === undefined) {

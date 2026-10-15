@@ -132,17 +132,27 @@ export class MonsterStatExtractor {
    */
   static extractHitDie(text: string): string | undefined {
     if (!text || typeof text !== 'string') return undefined;
-    const m = text.match(/(?:HP|Hit\s+Points)\s*\d+\s*\(([^)]+)\)/i);
-    return m ? m[1].trim() : undefined;
+    const m = text.match(/(?:HP|Hit\s+Points)[\s\n:]*?\d+[\s\n]*?\(([^)]+)\)/i);
+    if (m) return m[1].trim();
+    const hpNearby = text.match(/(?:HP|Hit\s+Points)[\s\S]{1,50}?\b(\d+d\d+(?:\s*[+\-]\s*\d+)?)\b/i);
+    if (hpNearby) return hpNearby[1].trim();
+    return undefined;
   }
 
   /**
-   * Extracts numeric initiative bonus (e.g. 14 from "+14 (24)" or "+14")
+   * Extracts numeric initiative bonus (e.g. 16 from "Initiative +16 (26)" or "+16 (26)" or "+16")
    */
   static extractInitiativeBonus(text: string, dexScore?: number): number {
     if (text && typeof text === 'string') {
-      const m = text.match(/Initiative\s*[:]?\s*([+\-]?\d+)/i);
-      if (m) return parseInt(m[1], 10);
+      // 1. Matches "Initiative +16 (26)" or "Initiative: +16"
+      const m1 = text.match(/Initiative\s*[:]?\s*([+\-]?\d+)/i);
+      if (m1) return parseInt(m1[1], 10);
+      // 2. Matches standalone "+16 (26)" or "+16"
+      const m2 = text.trim().match(/^([+\-]?\d+)(?:\s*\(\d+\))?$/);
+      if (m2) return parseInt(m2[1], 10);
+      // 3. Fallback: match first signed bonus e.g. "+16"
+      const m3 = text.match(/([+\-]\d+)/);
+      if (m3) return parseInt(m3[1], 10);
     }
     if (dexScore !== undefined && !isNaN(dexScore)) {
       return Math.floor((dexScore - 10) / 2);
@@ -249,8 +259,67 @@ export class MonsterStatExtractor {
    */
   static extractLegendaryActionUses(text: string): number | undefined {
     if (!text || typeof text !== 'string') return undefined;
-    const m = text.match(/Legendary\s+Action\s+Uses:\s*(\d+)/i);
+    const m = text.match(/Legendary\s+Action\s+Uses\s*[:]?\s*(\d+)/i) ||
+              text.match(/(?:can\s+take|has)\s*(\d+)\s*legendary\s+actions/i);
     return m ? parseInt(m[1], 10) : undefined;
+  }
+
+  /**
+   * Filters a saving throw array to retain ONLY proficient saving throws (where Save > natural Ability Mod).
+   * In 2024 D&D statblocks, the ability table lists Mod and Save for all abilities.
+   * Abilities where Save == Mod are non-proficient and should be omitted.
+   * Example: Dex 15 (+2 Mod, +9 Save) -> Kept ("Dex +9")
+   *          Str 24 (+7 Mod, +7 Save) -> Omitted (equals standard modifier)
+   */
+  static filterProficientSavingThrows(savingThrows: string[], abilities?: Record<string, number>): string[] {
+    if (!Array.isArray(savingThrows) || savingThrows.length === 0) return [];
+    if (!abilities || typeof abilities !== 'object') return savingThrows;
+
+    const abilityMap: Record<string, number | undefined> = {
+      str: abilities.strength,
+      strength: abilities.strength,
+      dex: abilities.dexterity,
+      dexterity: abilities.dexterity,
+      con: abilities.constitution,
+      constitution: abilities.constitution,
+      int: abilities.intelligence,
+      intelligence: abilities.intelligence,
+      wis: abilities.wisdom,
+      wisdom: abilities.wisdom,
+      cha: abilities.charisma,
+      charisma: abilities.charisma
+    };
+
+    return savingThrows.filter(st => {
+      if (!st || typeof st !== 'string') return false;
+      const m = st.trim().match(/^([a-z]+)\s*([+\-]?\d+)/i);
+      if (!m) return true;
+      const abKey = m[1].toLowerCase();
+      const saveVal = parseInt(m[2], 10);
+      const score = abilityMap[abKey];
+      if (score === undefined || isNaN(score)) return true;
+      const normalMod = Math.floor((score - 10) / 2);
+      // Proficient only if save bonus is strictly greater than the natural ability modifier
+      return saveVal > normalMod;
+    });
+  }
+
+  /**
+   * Extracts the Spellcasting action block from raw text if present.
+   */
+  static extractSpellcastingAction(text: string): { name: string; description: string } | undefined {
+    if (!text || typeof text !== 'string') return undefined;
+
+    const scMatch = text.match(/(?:^|\n)\s*(?:#{1,6}\s*)?(?:\*\*)?Spellcasting(?:\*\*)?[.:]\s*([^\n]+(?:\n(?!(?:#{1,6}\s*|\*\*[A-Z]|\b(?:Actions|Bonus Actions|Reactions|Legendary Actions|Lair Actions|Regional Effects)\b|[A-Z][A-Za-z0-9'\s]+[.:]))[^\n]+)*)/i);
+    if (!scMatch) return undefined;
+
+    const description = scMatch[0].replace(/^(?:^|\n)\s*(?:#{1,6}\s*)?(?:\*\*)?Spellcasting(?:\*\*)?[.:]\s*/i, '').trim();
+    if (!description) return undefined;
+
+    return {
+      name: 'Spellcasting',
+      description
+    };
   }
 
   /**
