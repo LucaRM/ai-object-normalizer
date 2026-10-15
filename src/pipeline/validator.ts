@@ -7,6 +7,7 @@ import {
   ErrorType
 } from '../types';
 import { ObjectIdHelper } from './objectId';
+import { MonsterStatExtractor } from './monsterExtractor';
 
 export class PropertyValidator {
   /**
@@ -334,17 +335,23 @@ export class PropertyValidator {
     tickCheck();
     if (!data.type || typeof data.type !== 'string') {
       data.type = 'Beast';
-    } else if (data.type.length > 50 || data.type.endsWith('.')) {
-      // Lore text was accidentally captured as creature type
-      const foundType = validTypes.find(t => new RegExp(`\\b${t}\\b`, 'i').test(data.type));
-      if (foundType) {
+    } else {
+      let cleanType = MonsterStatExtractor.cleanType(data.type);
+      if (cleanType.length > 50 || cleanType.endsWith('.')) {
+        // Lore text was accidentally captured as creature type
+        const foundType = validTypes.find(t => new RegExp(`\\b${t}\\b`, 'i').test(cleanType));
+        if (foundType) {
+          cleanType = foundType;
+        }
+      }
+      if (cleanType !== data.type) {
         coercedFields.push({
           path: 'type',
           original: data.type,
-          coerced: foundType,
-          reason: 'Sanitized lore sentence down to D&D creature type'
+          coerced: cleanType,
+          reason: 'Sanitized type prefixes and formatting'
         });
-        data.type = foundType;
+        data.type = cleanType;
       }
     }
     if (!data.alignment) data.alignment = 'Unaligned';
@@ -366,6 +373,21 @@ export class PropertyValidator {
       } else {
         warnings.push(`Invalid armorClass: ${data.armorClass}`);
       }
+    }
+
+    // 4b. Initiative
+    tickCheck();
+    if (!data.initiative || typeof data.initiative !== 'string' || data.initiative.trim().length === 0) {
+      const derivedInit = MonsterStatExtractor.extractInitiative('', data.abilities?.dexterity);
+      coercedFields.push({
+        path: 'initiative',
+        original: data.initiative,
+        coerced: derivedInit,
+        reason: 'Populated initiative using dexterity modifier'
+      });
+      data.initiative = derivedInit;
+    } else {
+      data.initiative = data.initiative.trim();
     }
 
     // 5. Hit Points

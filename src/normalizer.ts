@@ -14,6 +14,7 @@ import { NormalizationCache } from './pipeline/cache';
 import { EntitySectioner } from './pipeline/sectioner';
 import { EntityMerger } from './pipeline/merger';
 import { FreeTranslator } from './pipeline/translator';
+import { MonsterStatExtractor } from './pipeline/monsterExtractor';
 import { getTemplate } from './templates';
 
 export class ObjectNormalizer {
@@ -213,6 +214,35 @@ export class ObjectNormalizer {
   }
 
   /**
+   * Ensures 2024 D&D monster fields like initiative, saving throws, and clean types
+   * are extracted from the raw text even if an LLM omitted them or returned empty arrays.
+   */
+  public enrichMonster2024Attributes(entity: any, text: string): void {
+    if (!entity || typeof entity !== 'object') return;
+
+    // 1. Initiative: Extract "+16 (26)" or calculate from Dexterity
+    if (!entity.initiative || typeof entity.initiative !== 'string' || entity.initiative.trim().length === 0) {
+      entity.initiative = MonsterStatExtractor.extractInitiative(text, entity.abilities?.dexterity);
+    }
+
+    // 2. Saving Throws: If LLM returned empty [] (as 2024 blocks embed saves in ability table), extract from text
+    if (!Array.isArray(entity.savingThrows) || entity.savingThrows.length === 0) {
+      const extractedSaves = MonsterStatExtractor.extractSavingThrows(text);
+      if (extractedSaves.length > 0) {
+        entity.savingThrows = extractedSaves;
+      }
+    }
+
+    // 3. Clean type & size (eliminates "or Medium humanoid" -> "Humanoid")
+    if (entity.type) {
+      entity.type = MonsterStatExtractor.cleanType(entity.type);
+    }
+    if (entity.size) {
+      entity.size = MonsterStatExtractor.cleanSize(entity.size);
+    }
+  }
+
+  /**
    * Add a provider to the normalizer cascade
    */
   addProvider(provider: NormalizerProvider): void {
@@ -283,6 +313,10 @@ export class ObjectNormalizer {
 
     // 3. Single Execution via Cascading Providers
     const execRes = await this.executeSingleNormalization(text, targetSchema, options);
+
+    if (isMonster) {
+      this.enrichMonster2024Attributes(execRes.data, text);
+    }
 
     // 4. Run property validation and normalization pipeline
     const { normalized, validation, relations } = PropertyValidator.normalizeAndValidate(
@@ -548,6 +582,7 @@ export class ObjectNormalizer {
       size: fullSchema?.size || 'Medium',
       alignment: fullSchema?.alignment || 'Unaligned',
       armorClass: fullSchema?.armorClass || 10,
+      initiative: fullSchema?.initiative || '+0 (10)',
       hitPoints: fullSchema?.hitPoints || 10,
       speed: fullSchema?.speed || '30 ft.',
       abilities: fullSchema?.abilities || { strength: 10, dexterity: 10, constitution: 10, intelligence: 10, wisdom: 10, charisma: 10 },
@@ -656,6 +691,9 @@ export class ObjectNormalizer {
     // 5. Stitch all parts together
     console.log(`  → Merging ${chunksProcessed.length} normalized chunks into unified entity...`);
     const mergedData = EntityMerger.mergeMonster(partialResults as any);
+
+    // Enrich 2024 attributes (Initiative, 2024 embedded saving throws, clean type) from raw text
+    this.enrichMonster2024Attributes(mergedData, text);
 
     // 6. Run full property validation & formatting on unified document
     const { normalized, validation, relations } = PropertyValidator.normalizeAndValidate(

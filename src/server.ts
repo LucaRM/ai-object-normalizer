@@ -183,7 +183,10 @@ app.post('/normalize', async (req: Request, res: Response) => {
       ...(req.body.minIntervalMs !== undefined && { minIntervalMs: Number(req.body.minIntervalMs) }),
       ...(req.body.defaultCooldownSeconds !== undefined && { defaultCooldownSeconds: Number(req.body.defaultCooldownSeconds) }),
       ...(req.headers['x-min-interval-ms'] && { minIntervalMs: Number(req.headers['x-min-interval-ms']) }),
-      ...(req.headers['x-cooldown-seconds'] && { defaultCooldownSeconds: Number(req.headers['x-cooldown-seconds']) })
+      ...(req.headers['x-cooldown-seconds'] && { defaultCooldownSeconds: Number(req.headers['x-cooldown-seconds']) }),
+      ...(req.body.targetLocale && { targetLocale: req.body.targetLocale }),
+      ...(getHeaderString(req.headers['x-target-locale']) && { targetLocale: getHeaderString(req.headers['x-target-locale']) }),
+      ...(req.body.sourceLocale && { sourceLocale: req.body.sourceLocale })
     };
 
     const reqGeminiKey = getHeaderString(req.headers['x-gemini-key']) || getHeaderString(req.headers['x-api-key']);

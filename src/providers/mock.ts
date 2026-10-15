@@ -3,6 +3,7 @@ import { MONSTER_TEMPLATE } from '../templates/monster';
 import { WEAPON_TEMPLATE } from '../templates/weapon';
 import { SPELL_TEMPLATE } from '../templates/spell';
 import { MAGICAL_ITEM_TEMPLATE } from '../templates/magicalItem';
+import { MonsterStatExtractor } from '../pipeline/monsterExtractor';
 
 export class MockProvider implements NormalizerProvider {
   public name = 'Deterministic / Rule-Based Extractor';
@@ -127,7 +128,7 @@ export class MockProvider implements NormalizerProvider {
     let cleaned = text.replace(/\[([^\]]+)\]\([^)]+\)/g, '$1').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
 
     // If text contains multiple monsters, isolate the first monster's stat block
-    const monsterHeaderRegex = /(?:^|\n)([A-Z0-9][A-Za-z0-9'\s\-–—/]+?)\s*\n((?:Tiny|Small|Medium|Large|Huge|Gargantuan)(?:\s+or\s+(?:Tiny|Small|Medium|Large|Huge|Gargantuan))?\s+(?:Aberration|Beast|Celestial|Construct|Dragon|Elemental|Fey|Fiend|Giant|Humanoid|Monstrosity|Ooze|Plant|Undead)(?:\s*\([^\)]+\))?[^\n]*)/gi;
+    const monsterHeaderRegex = /(?:^|\n)([A-Z0-9][A-Za-z0-9'\s\-–—/]+?)\s*\n((?:(?:or|ou)\s+)?(?:Tiny|Small|Medium|Large|Huge|Gargantuan)(?:\s+or\s+(?:Tiny|Small|Medium|Large|Huge|Gargantuan))?\s+(?:Aberration|Beast|Celestial|Construct|Dragon|Elemental|Fey|Fiend|Giant|Humanoid|Monstrosity|Ooze|Plant|Undead)(?:\s*\([^\)]+\))?[^\n]*)/gi;
     const matches: number[] = [];
     let m: RegExpExecArray | null;
     while ((m = monsterHeaderRegex.exec(cleaned)) !== null) {
@@ -148,14 +149,14 @@ export class MockProvider implements NormalizerProvider {
     let alignment = 'Unaligned';
     let name = lines[0] || 'Unknown Creature';
 
-    const sizeTypeRegex = /^((?:Tiny|Small|Medium|Large|Huge|Gargantuan)(?:\s+or\s+(?:Tiny|Small|Medium|Large|Huge|Gargantuan))?)\s+([^,]+)(?:,\s*(.+))?$/i;
+    const sizeTypeRegex = /^(?:(?:or|ou)\s+)?((?:Tiny|Small|Medium|Large|Huge|Gargantuan)(?:\s+or\s+(?:Tiny|Small|Medium|Large|Huge|Gargantuan))?)\s+([^,]+)(?:,\s*(.+))?$/i;
 
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
       const match = line.match(sizeTypeRegex);
       if (match) {
-        size = match[1].trim();
-        type = match[2].trim();
+        size = MonsterStatExtractor.cleanSize(match[1].trim());
+        type = MonsterStatExtractor.cleanType(match[2].trim());
         if (match[3]) alignment = match[3].trim();
         // The monster's authentic name immediately precedes the size/type line
         if (i > 0 && lines[i - 1]) {
@@ -200,9 +201,11 @@ export class MockProvider implements NormalizerProvider {
     const chaMatch = cleaned.match(/\b(?:CHA|Charisma)\b[\s:]*(\d+)/i);
     if (chaMatch) abilities.charisma = parseInt(chaMatch[1], 10);
 
-    // Saving Throws
-    const savesMatch = cleaned.match(/Saving Throws\s*[\n:]?\s*([^\n]+)/i);
-    const savingThrows = savesMatch ? savesMatch[1].split(',').map(s => s.trim()) : [];
+    // Initiative: Matches "Initiative +16 (26)", "AC 16 Initiative +3 (13)", or derives from Dex
+    const initiative = MonsterStatExtractor.extractInitiative(cleaned, abilities.dexterity);
+
+    // Saving Throws: Matches both 2014 explicit format and 2024 Ability Score Mod Save table
+    const savingThrows = MonsterStatExtractor.extractSavingThrows(cleaned);
 
     // Skills
     const skillsMatch = cleaned.match(/Skills\s*[\n:]?\s*([^\n]+)/i);
@@ -265,6 +268,7 @@ export class MockProvider implements NormalizerProvider {
       size,
       alignment,
       armorClass,
+      initiative,
       hitPoints,
       speed,
       abilities,
