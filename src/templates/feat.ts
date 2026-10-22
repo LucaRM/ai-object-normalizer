@@ -34,7 +34,7 @@ export const FEAT_TEMPLATE = {
       name: 'Mestre em Armas Grandes',
       description: 'Você aprendeu a usar o peso de uma arma a seu favor, permitindo que seu impulso fortaleça seus ataques.',
       featType: 'Geral',
-      preRequisite: 'Nível 4+, Força 13+',
+      prerequisite: 'Nível 4+, Força 13+',
       features: [
         {
           name: 'Aumento no Valor de Habilidade',

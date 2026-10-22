@@ -105,19 +105,25 @@ export class EntitySectioner {
   /**
    * Checks if an entity text is large enough to warrant sectioning
    */
-  static shouldSection(text: string, template?: string): boolean {
+  static shouldSection(text: string, template?: string, customThreshold?: number): boolean {
     const tmpl = (template || '').toLowerCase().trim();
     const len = text.length;
 
     if (tmpl === 'monster') {
-      // If monster text is > 1600 chars and has Actions heading
-      return len > 1600 && /(?:^|\n)(?:Actions|###\s*Actions|\*\*Actions\*\*)/i.test(text);
+      const threshold = customThreshold !== undefined ? customThreshold : 6000;
+      return len > threshold && /(?:^|\n)(?:Actions|###\s*Actions|\*\*Actions\*\*)/i.test(text);
+    }
+
+    if (tmpl === 'species' || tmpl === 'race') {
+      const threshold = customThreshold !== undefined ? customThreshold : 15000;
+      return len > threshold;
     }
 
     if (tmpl === 'class') {
-      return len > 2000 && /(?:^|\n)Level\s*1\b/i.test(text);
+      const threshold = customThreshold !== undefined ? customThreshold : 2000;
+      return len > threshold && /(?:^|\n)Level\s*1\b/i.test(text);
     }
 
-    return len > 4000;
+    return len > (customThreshold !== undefined ? customThreshold : 4000);
   }
 }

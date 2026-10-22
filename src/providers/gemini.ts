@@ -27,6 +27,7 @@ export class GeminiProvider implements NormalizerProvider {
       throw new NormalizerError('Gemini API key is required', ErrorType.API_ERROR, this.name);
     }
 
+    const timeoutMs = options?.providerTimeoutMs || 12000;
     try {
       const prompt = this.buildPrompt(text, schema, options);
       const url = `https://generativelanguage.googleapis.com/v1beta/models/${this.model}:generateContent?key=${this.apiKey}`;
@@ -46,7 +47,8 @@ export class GeminiProvider implements NormalizerProvider {
         },
         {
           headers: { 'Content-Type': 'application/json' },
-          timeout: 25000
+          timeout: timeoutMs,
+          signal: AbortSignal.timeout(timeoutMs)
         }
       );
 
@@ -60,22 +62,51 @@ export class GeminiProvider implements NormalizerProvider {
       if (error instanceof NormalizerError) {
         throw error;
       }
+      if (error.name === 'AbortError' || error.code === 'ECONNABORTED' || error.code === 'ERR_CANCELED' || /timeout/i.test(error.message)) {
+        throw new NormalizerError(
+          `Gemini request timed out after ${timeoutMs}ms`,
+          ErrorType.NETWORK_ERROR,
+          this.name,
+          undefined,
+          error
+        );
+      }
       const status = error.response?.status;
       const retryAfter = error.response?.headers?.['retry-after'];
       const responseData = error.response?.data;
-      const detailMsg =
-        (typeof responseData === 'object'
-          ? responseData?.error?.message || responseData?.message
-          : responseData) ||
-        error.message ||
-        'Gemini normalization failed';
+      let detectedRetryAfter: number | undefined = retryAfter ? Number(retryAfter) : undefined;
+      let detailMsg = error.message || 'Gemini normalization failed';
+
+      if (typeof responseData === 'object' && responseData !== null) {
+        const mainMsg = responseData.error?.message || responseData.message || '';
+        const details = responseData.error?.details || responseData.details;
+        const extraParts: string[] = [];
+
+        if (Array.isArray(details)) {
+          for (const d of details) {
+            if (d.retryDelay) {
+              extraParts.push(`retryDelay: ${d.retryDelay}`);
+              const s = parseFloat(d.retryDelay);
+              if (!isNaN(s) && s > 0) detectedRetryAfter = Math.ceil(s);
+            }
+            if (Array.isArray(d.violations)) {
+              for (const v of d.violations) {
+                if (v.description) extraParts.push(v.description);
+              }
+            }
+          }
+        }
+        detailMsg = [mainMsg, ...extraParts].filter(Boolean).join(' - ') || detailMsg;
+      } else if (typeof responseData === 'string') {
+        detailMsg = responseData;
+      }
 
       if (status === 429) {
         throw new NormalizerError(
           `Gemini rate limit exceeded: ${detailMsg}`,
           ErrorType.RATE_LIMIT,
           this.name,
-          retryAfter ? Number(retryAfter) : undefined,
+          detectedRetryAfter,
           error
         );
       }
@@ -120,7 +151,8 @@ RULES:
 3. Extract all values faithfully from the raw text. Coerce numbers to numeric integers/floats if the schema indicates numeric values.
 4. For missing optional arrays, return an empty array [].
 5. RELATIONAL FIELDS & FOREIGN REFERENCES: For fields that tie into another entity (such as 'feat' in background, 'books' references, 'classId' in subclass, 'baseItem' in magical items, or spell lists), return the human-readable NAME of the referenced entity (e.g. feat: "Savage Attacker", books: ["Player's Handbook 2024"], classId: "Fighter"). Do NOT invent random hexadecimal ObjectIds for foreign entities. The importing script will resolve the database relationship by matching entity names.
-6. Keep descriptions clean and faithful to the source.${specializedGuide}${localeInstruction}
+6. ANTI-HALLUCINATION / ANTI-BLEED RULE: The Target Schema Template below provides structural guidance using sample values. You MUST extract the name, description, traits, and attributes strictly from the Raw Text. NEVER copy placeholder names (such as "Elf", "Fighter", "Soldier", "Flame Tongue", "Fireball") or example lore descriptions into your output unless the Raw Text explicitly describes them!
+7. Keep descriptions clean and faithful to the source.${specializedGuide}${localeInstruction}
 
 Target Schema Template:
 ${JSON.stringify(promptSchema, null, 2)}

@@ -17,15 +17,150 @@ import { FreeTranslator } from './pipeline/translator';
 import { MonsterStatExtractor } from './pipeline/monsterExtractor';
 import { MonsterActionParser } from './pipeline/actionParser';
 import { getTemplate } from './templates';
+import { IProviderStore, getProviderStore, RateLimitType, ProviderDocument } from './database';
+import { CustomOpenAIProvider } from './providers/custom';
 
 export class ObjectNormalizer {
   private providers: NormalizerProvider[];
   public cache = NormalizationCache.getInstance();
   private cooldowns: Map<string, { until: number; durationSeconds: number; reason: string }> = new Map();
   private lastCallTime: Map<string, number> = new Map();
+  private store?: IProviderStore;
 
-  constructor(providers: NormalizerProvider[] = []) {
+  constructor(providers: NormalizerProvider[] = [], store?: IProviderStore) {
     this.providers = providers;
+    this.store = store;
+  }
+
+  /**
+   * Assign persistent provider store (MongoDB or local JSON fallback)
+   */
+  public setStore(store: IProviderStore): void {
+    this.store = store;
+  }
+
+  public getStore(): IProviderStore | undefined {
+    return this.store;
+  }
+
+  /**
+   * Helper to map provider display names to canonical database ID
+   */
+  public findProviderId(providerName: string): string {
+    const lower = providerName.toLowerCase();
+    if (lower.includes('cerebras')) return 'cerebras';
+    if (lower.includes('sambanova')) return 'sambanova';
+    if (lower.includes('mistral')) return 'mistral';
+    if (lower.includes('deepseek')) return 'deepseek';
+    if (lower.includes('github')) return 'github';
+    if (lower.includes('huggingface') || lower.includes('hugging face')) return 'huggingface';
+    if (lower.includes('gemini') || lower.includes('google')) return 'gemini';
+    if (lower.includes('groq')) return 'groq';
+    if (lower.includes('openrouter')) return 'openrouter';
+    if (lower.includes('cohere')) return 'cohere';
+    if (lower.includes('pollinations')) return 'pollinations';
+    if (lower.includes('ovh') || lower.includes('kepler')) return 'ovh';
+    if (lower.includes('openai') || lower.includes('chatgpt')) return 'openai';
+    if (lower.includes('anthropic') || lower.includes('claude')) return 'anthropic';
+    if (lower.includes('ollama')) return 'ollama';
+    if (lower.includes('mock') || lower.includes('deterministic')) return 'mock';
+    return lower.replace(/[^a-z0-9_-]/g, '');
+  }
+
+  /**
+   * Sync active provider states, invalidations, and cooldown timestamps with the database.
+   * If a cooldown was saved previously and hasn't expired yet, keeps waiting until that timestamp.
+   */
+  public async syncWithStore(store?: IProviderStore): Promise<void> {
+    if (store) {
+      this.store = store;
+    }
+    if (!this.store) {
+      this.store = getProviderStore();
+    }
+    try {
+      const docs = await this.store.getAll();
+      const now = Date.now();
+      for (const doc of docs) {
+        let provider = this.providers.find(p => this.findProviderId(p.name) === doc.id);
+
+        // Dynamically register custom provider if added through frontend / database
+        if (!provider && (doc.apiKey || doc.baseUrl)) {
+          const custom = new CustomOpenAIProvider(doc.id, doc.name, doc.apiKey, doc.model, doc.baseUrl);
+          this.addProvider(custom);
+          provider = custom;
+          console.log(`[Normalizer] 🔌 Dynamically registered provider: "${doc.name}" (${doc.model || 'default'})`);
+        }
+
+        if (!provider) continue;
+
+        // 0. If provider was manually disabled by user
+        if (doc.manuallyDisabled === true || doc.isAvailable === false) {
+          if (typeof provider.setAvailable === 'function') {
+            provider.setAvailable(false);
+          }
+          continue;
+        }
+
+        // 1. If provider was marked invalid (e.g. revoked key or authentication failed)
+        if (doc.isValid === false) {
+          if (typeof provider.setAvailable === 'function') {
+            provider.setAvailable(false);
+          }
+          console.warn(`[Normalizer] ⛔ Provider "${provider.name}" marked INVALID in database: ${doc.validationError || 'Invalid credentials'}`);
+          continue;
+        }
+
+        // 2. If provider has an active persistent cooldown
+        if (doc.cooldownUntil) {
+          const untilMs = new Date(doc.cooldownUntil).getTime();
+          if (untilMs > now) {
+            const remainingSec = Math.ceil((untilMs - now) / 1000);
+            this.cooldowns.set(provider.name, {
+              until: untilMs,
+              durationSeconds: remainingSec,
+              reason: doc.cooldownReason || 'Persistent cooldown loaded from database'
+            });
+            if (typeof provider.setAvailable === 'function') {
+              provider.setAvailable(false);
+            }
+            const durationHuman = remainingSec >= 86400
+              ? `${(remainingSec / 86400).toFixed(1)}d`
+              : (remainingSec >= 3600 ? `${(remainingSec / 3600).toFixed(1)}h` : `${remainingSec}s`);
+            console.warn(`[Normalizer] ⏳ Loaded persistent cooldown for "${provider.name}": ${durationHuman} remaining (until ${doc.cooldownUntil}) [Reason: ${doc.cooldownReason || 'Quota limit'}]`);
+          } else {
+            // Cooldown has expired while server was offline -> clear it in store
+            await this.store.clearCooldown(doc.id);
+            if (typeof provider.setAvailable === 'function') {
+              provider.setAvailable(true);
+            }
+          }
+        } else {
+          if (typeof provider.setAvailable === 'function') {
+            provider.setAvailable(true);
+          }
+        }
+      }
+    } catch (err: any) {
+      console.warn('[Normalizer] Failed to sync with database store:', err.message);
+    }
+  }
+
+  public setProviderAvailability(providerName: string, state: boolean): void {
+    const provider = this.providers.find(p => p.name.toLowerCase() === providerName.toLowerCase() || this.findProviderId(p.name) === this.findProviderId(providerName));
+    if (provider && typeof provider.setAvailable === 'function') {
+      provider.setAvailable(state);
+    }
+  }
+
+  public removeProvider(providerId: string): boolean {
+    const id = this.findProviderId(providerId);
+    const idx = this.providers.findIndex(p => this.findProviderId(p.name) === id);
+    if (idx >= 0) {
+      this.providers.splice(idx, 1);
+      return true;
+    }
+    return false;
   }
 
   /**
@@ -37,17 +172,39 @@ export class ObjectNormalizer {
   }
 
   /**
-   * Set a provider offline on cooldown for specified seconds
+   * Set a provider offline on cooldown for specified seconds and persist to database.
+   * Clamped up to 45 days (3,888,000s) to handle monthly token limits.
    */
-  public setProviderCooldown(providerName: string, seconds: number, reason: string = 'Rate limit / error'): void {
-    const clamped = Math.max(1, Math.min(seconds, 86400));
+  public setProviderCooldown(
+    providerName: string,
+    seconds: number,
+    reason: string = 'Rate limit / error',
+    rateLimitType?: RateLimitType
+  ): void {
+    const clamped = Math.max(1, Math.min(seconds, 3888000));
     const until = Date.now() + (clamped * 1000);
     this.cooldowns.set(providerName, { until, durationSeconds: clamped, reason });
-    console.warn(`[Normalizer] ⏳ Provider "${providerName}" set offline for ${clamped}s (until ${new Date(until).toLocaleTimeString()}): ${reason}`);
+    const isMonthly = rateLimitType === 'month' || clamped >= 86400 * 3 || /month/i.test(reason);
+    const isDaily = !isMonthly && (rateLimitType === 'day' || clamped >= 7200 || /day|daily|RPD|TPD/i.test(reason));
+    const durationHuman = clamped >= 86400
+      ? `${(clamped / 86400).toFixed(1)}d`
+      : (clamped >= 3600
+        ? `${(clamped / 3600).toFixed(1)}h`
+        : (clamped >= 60 ? `${Math.ceil(clamped / 60)}m` : `${clamped}s`));
+    const tag = isMonthly ? ' [MONTHLY QUOTA EXHAUSTED]' : (isDaily ? ' [DAILY QUOTA EXHAUSTED]' : '');
+    console.warn(`[Normalizer] ⏳ Provider "${providerName}" set offline for ${durationHuman} (${clamped}s, until ${new Date(until).toISOString()})${tag}: ${reason}`);
 
     const provider = this.providers.find(p => p.name === providerName);
     if (provider && typeof provider.setAvailable === 'function') {
       provider.setAvailable(false);
+    }
+
+    if (this.store) {
+      const providerId = this.findProviderId(providerName);
+      const detectedType = rateLimitType || (isMonthly ? 'month' : (isDaily ? 'day' : 'minute'));
+      this.store.setCooldown(providerId, new Date(until), reason, detectedType).catch((err: any) => {
+        console.warn(`[Normalizer] Failed to persist cooldown for ${providerId}:`, err.message);
+      });
     }
   }
 
@@ -77,6 +234,99 @@ export class ObjectNormalizer {
         provider.setAvailable(true);
       }
     }
+    if (this.store) {
+      const providerId = this.findProviderId(providerName);
+      this.store.clearCooldown(providerId).catch((err: any) => {
+        console.warn(`[Normalizer] Failed to clear persistent cooldown for ${providerId}:`, err.message);
+      });
+    }
+  }
+
+  /**
+   * Identifies the current highest-priority available provider for the given options
+   */
+  public getNextAvailableProvider(options: NormalizeOptions = {}): NormalizerProvider | undefined {
+    if (options.specificProvider) {
+      const target = options.specificProvider.toLowerCase().trim();
+      return this.providers.find(p => {
+        const pName = p.name.toLowerCase();
+        return (
+          pName === target ||
+          pName.includes(target) ||
+          target.includes(pName) ||
+          (target === 'free' && (pName.includes('free') || pName.includes('pollinations') || pName.includes('ovh') || pName.includes('llama'))) ||
+          (target === 'cohere' && pName.includes('cohere')) ||
+          (target === 'mock' && this.isMockProvider(pName)) ||
+          (target === 'deterministic' && this.isMockProvider(pName))
+        );
+      });
+    }
+
+    for (const provider of this.providers) {
+      if (this.isMockProvider(provider) && !options.allowMock) {
+        continue;
+      }
+      if (this.getCooldownRemaining(provider.name) > 0) {
+        continue;
+      }
+      if (!provider.isAvailable()) {
+        continue;
+      }
+      return provider;
+    }
+    return undefined;
+  }
+
+  /**
+   * Determine the maximum single-shot text length threshold before chunking is recommended.
+   * Tailored dynamically to each provider's context and output token window.
+   */
+  public getProviderChunkThreshold(provider?: NormalizerProvider): number {
+    if (!provider) return 6000;
+    const pName = provider.name.toLowerCase();
+
+    // 1. Local Mock / Deterministic Heuristic Extractor:
+    // Pure rule-based parser operates in a single pass in 0ms. Never chunk.
+    if (this.isMockProvider(provider)) {
+      return Infinity;
+    }
+
+    // 2. High capacity models: massive context (128k - 1M) & 8k+ output tokens
+    // Gemini (1M), Groq (128k), OpenAI (128k), Anthropic, Cohere
+    if (
+      pName.includes('groq') ||
+      pName.includes('gemini') ||
+      pName.includes('openai') ||
+      pName.includes('anthropic') ||
+      pName.includes('cohere')
+    ) {
+      return 15000;
+    }
+
+    // 3. Medium tier (OpenRouter free models, local Ollama):
+    if (pName.includes('openrouter') || pName.includes('ollama')) {
+      return 8000;
+    }
+
+    // 4. Low tier / Keyless public proxies (Pollinations, OVH Kepler):
+    // Strict output token caps (1500-2500 tokens). Chunk if text has extensive actions/traits (>2000 chars).
+    if (pName.includes('pollinations') || pName.includes('ovh')) {
+      return 2000;
+    }
+
+    return 6000;
+  }
+
+  /**
+   * Smart decision: Should this entity be chunked based on text length AND the active provider?
+   */
+  public shouldChunkForProvider(text: string, provider?: NormalizerProvider, options: NormalizeOptions = {}): boolean {
+    // Explicit user override always takes precedence
+    if (options.chunked === true) return true;
+    if (options.chunked === false) return false;
+
+    const threshold = this.getProviderChunkThreshold(provider);
+    return EntitySectioner.shouldSection(text, options.template, threshold);
   }
 
   /**
@@ -91,30 +341,166 @@ export class ObjectNormalizer {
   }
 
   /**
-   * Parse cooldown period in seconds from error object, messages, or headers
+   * Parse cooldown period in seconds from error object, messages, or headers.
+   * Handles explicit wait times (hours/mins/secs) from AIs, Retry-After headers,
+   * and automatically applies a large daily cooldown (until UTC midnight reset)
+   * when an AI indicates daily token or request quotas have been exhausted.
    */
-  public parseCooldownSeconds(err: any, fallbackSeconds: number = 60): number {
-    // 1. Explicit retryAfterSeconds property
+  public parseCooldownSeconds(err: any, fallbackSeconds: number = 60, options: NormalizeOptions = {}): number {
+    // Helper to extract case-insensitive headers
+    const getHeader = (headers: any, name: string): any => {
+      if (!headers || typeof headers !== 'object') return undefined;
+      const lower = name.toLowerCase();
+      for (const k of Object.keys(headers)) {
+        if (k.toLowerCase() === lower) return headers[k];
+      }
+      return undefined;
+    };
+
+    // Helper to parse duration string like '5h23m12s', '14h12m', '90s', etc.
+    const parseDurationString = (str: string): number | null => {
+      if (typeof str !== 'string' || !str.trim()) return null;
+      const trimmed = str.trim();
+
+      // 1. Hours, Minutes, Seconds: e.g. 5h23m12.345s or 5 hours, 23 minutes, and 12 seconds
+      const hms = trimmed.match(/(?:in|after|wait|resets?|delay)?[:\s]*(\d+)\s*(?:h|hours?)\s*,?\s*(?:and\s*)?(\d+)\s*(?:m|min|mins|minutes?)\s*,?\s*(?:and\s*)?(\d+(?:\.\d+)?)\s*(?:s|sec|secs|seconds?)?/i);
+      if (hms) {
+        const h = Number(hms[1]) || 0;
+        const m = Number(hms[2]) || 0;
+        const s = Number(hms[3]) || 0;
+        const total = h * 3600 + m * 60 + Math.ceil(s);
+        if (total > 0) return total;
+      }
+
+      // 2. Hours and Minutes: e.g. 14h12m or 2 hours and 30 minutes
+      const hm = trimmed.match(/(?:in|after|wait|resets?|delay)?[:\s]*(\d+)\s*(?:h|hours?)\s*,?\s*(?:and\s*)?(\d+)\s*(?:m|min|mins|minutes?)/i);
+      if (hm) {
+        const h = Number(hm[1]) || 0;
+        const m = Number(hm[2]) || 0;
+        const total = h * 3600 + m * 60;
+        if (total > 0) return total;
+      }
+
+      // 3. Hours and Seconds: e.g. 1h 30s
+      const hs = trimmed.match(/(?:in|after|wait|resets?|delay)?[:\s]*(\d+)\s*(?:h|hours?)\s*,?\s*(?:and\s*)?(\d+(?:\.\d+)?)\s*(?:s|sec|secs|seconds?)/i);
+      if (hs) {
+        const h = Number(hs[1]) || 0;
+        const s = Number(hs[2]) || 0;
+        const total = h * 3600 + Math.ceil(s);
+        if (total > 0) return total;
+      }
+
+      // 4. Hours only: e.g. in 4 hours, 1.5h
+      const hOnly = trimmed.match(/(?:in|after|wait|resets?|delay)?[:\s]*(\d+(?:\.\d+)?)\s*(?:h|hours?)\b/i);
+      if (hOnly) {
+        const total = Math.ceil(parseFloat(hOnly[1]) * 3600);
+        if (total > 0) return total;
+      }
+
+      // 5. Minutes and Seconds: e.g. 1m 30s, 2 minutes and 15 seconds
+      const ms = trimmed.match(/(?:in|after|wait|resets?|delay)?[:\s]*(\d+)\s*(?:m|min|mins|minutes?)\s*,?\s*(?:and\s*)?(\d+(?:\.\d+)?)\s*(?:s|sec|secs|seconds?)/i);
+      if (ms) {
+        const m = Number(ms[1]) || 0;
+        const s = Number(ms[2]) || 0;
+        const total = m * 60 + Math.ceil(s);
+        if (total > 0) return total;
+      }
+
+      // 6. Minutes only: e.g. in 45 minutes, 2 mins
+      const mOnly = trimmed.match(/(?:in|after|wait|resets?|delay)?[:\s]*(\d+(?:\.\d+)?)\s*(?:m|min|mins|minutes?)\b/i);
+      if (mOnly) {
+        const total = Math.ceil(parseFloat(mOnly[1]) * 60);
+        if (total > 0) return total;
+      }
+
+      // 7. Seconds only: e.g. in 23.456s, 45 seconds, 20s
+      const sOnly = trimmed.match(/(?:in|after|wait|resets?|delay)?[:\s]*(\d+(?:\.\d+)?)\s*(?:s|sec|secs|seconds?)\b/i);
+      if (sOnly) {
+        const total = Math.ceil(parseFloat(sOnly[1]));
+        if (total > 0) return total;
+      }
+
+      // 8. Plain numeric value
+      const num = Number(trimmed);
+      if (!isNaN(num) && num > 0) {
+        return Math.ceil(num);
+      }
+
+      return null;
+    };
+
+    // Helper: calculate seconds until the 1st of next month UTC (monthly reset time)
+    const getSecondsUntilNextMonth = (): number => {
+      const now = new Date();
+      const nextMonth = new Date(Date.UTC(
+        now.getUTCFullYear(),
+        now.getUTCMonth() + 1,
+        1,
+        0, 2, 0 // 2 minutes past midnight UTC on the 1st
+      ));
+      const diffSec = Math.ceil((nextMonth.getTime() - now.getTime()) / 1000);
+      return Math.max(86400, Math.min(3888000, diffSec));
+    };
+
+    // Helper: calculate seconds until next midnight UTC (daily reset time)
+    const getSecondsUntilNextUtcMidnight = (): number => {
+      const now = new Date();
+      const nextMidnight = new Date(Date.UTC(
+        now.getUTCFullYear(),
+        now.getUTCMonth(),
+        now.getUTCDate() + 1,
+        0, 2, 0 // 2 minutes past midnight UTC
+      ));
+      const diffSec = Math.ceil((nextMidnight.getTime() - now.getTime()) / 1000);
+      return Math.max(14400, Math.min(86400, diffSec)); // Clamp between 4h and 24h
+    };
+
+    // 1. Explicit retryAfterSeconds property on error
     if (typeof err?.retryAfterSeconds === 'number' && err.retryAfterSeconds > 0) {
-      return Math.min(3600, Math.max(1, Math.round(err.retryAfterSeconds)));
+      return Math.min(3888000, Math.max(1, Math.round(err.retryAfterSeconds)));
     }
 
-    // 2. HTTP Retry-After header
-    const headers = err?.rawError?.response?.headers || err?.response?.headers;
-    const retryHeader = headers?.['retry-after'];
-    if (retryHeader) {
-      const numHeader = Number(retryHeader);
-      if (!isNaN(numHeader) && numHeader > 0) {
-        return Math.min(3600, Math.max(1, Math.round(numHeader)));
+    // 2. Check HTTP headers
+    const headers = err?.rawError?.response?.headers || err?.response?.headers || err?.headers;
+    if (headers) {
+      // Retry-After-Ms
+      const retryMs = getHeader(headers, 'retry-after-ms');
+      if (retryMs) {
+        const numMs = Number(retryMs);
+        if (!isNaN(numMs) && numMs > 0) return Math.min(3888000, Math.max(1, Math.ceil(numMs / 1000)));
       }
-      const dateHeader = new Date(retryHeader).getTime();
-      if (!isNaN(dateHeader) && dateHeader > Date.now()) {
-        const diffSec = Math.ceil((dateHeader - Date.now()) / 1000);
-        return Math.min(3600, Math.max(1, diffSec));
+
+      // Retry-After
+      const retryHeader = getHeader(headers, 'retry-after');
+      if (retryHeader) {
+        const parsedDur = parseDurationString(String(retryHeader));
+        if (parsedDur) return Math.min(3888000, Math.max(1, parsedDur));
+        const dateHeader = new Date(retryHeader).getTime();
+        if (!isNaN(dateHeader) && dateHeader > Date.now()) {
+          const diffSec = Math.ceil((dateHeader - Date.now()) / 1000);
+          return Math.min(3888000, Math.max(1, diffSec));
+        }
+      }
+
+      // x-ratelimit-reset-requests or x-ratelimit-reset-tokens or x-ratelimit-reset
+      const resetHeader = getHeader(headers, 'x-ratelimit-reset-requests') ||
+                          getHeader(headers, 'x-ratelimit-reset-tokens') ||
+                          getHeader(headers, 'x-ratelimit-reset') ||
+                          getHeader(headers, 'anthropic-ratelimit-unified-reset');
+      if (resetHeader) {
+        const parsedDur = parseDurationString(String(resetHeader));
+        if (parsedDur) {
+          if (parsedDur > 1700000000) {
+            const nowSec = Math.floor(Date.now() / 1000);
+            if (parsedDur > nowSec) return Math.min(3888000, Math.max(1, parsedDur - nowSec));
+          } else {
+            return Math.min(3888000, Math.max(1, parsedDur));
+          }
+        }
       }
     }
 
-    // 3. Search text within error message and response body
+    // 3. Search text within error message, response body, and details
     const parts: string[] = [
       err?.message || '',
       err?.rawError?.message || '',
@@ -123,46 +509,76 @@ export class ObjectNormalizer {
         : JSON.stringify(err?.rawError?.response?.data || ''),
       typeof err?.response?.data === 'string'
         ? err.response.data
-        : JSON.stringify(err?.response?.data || '')
+        : JSON.stringify(err?.response?.data || ''),
+      typeof err?.details === 'string'
+        ? err.details
+        : JSON.stringify(err?.details || '')
     ];
     const combined = parts.join(' ');
 
-    // 3a. Minutes + Seconds pattern (e.g. "try again in 1m 20s" or "resets in 2 minutes and 30 seconds")
-    const minSecMatch = combined.match(/(?:try again|retry|wait|resets?|cooling down|rate limit)(?:\s+(?:in|after))?\s*[:]?\s*(\d+)\s*(?:m|min|mins|minutes?)\s*(?:and\s*)?(\d+(?:\.\d+)?)\s*(?:s|sec|secs|seconds?)/i);
-    if (minSecMatch) {
-      const mins = Number(minSecMatch[1]);
-      const secs = Number(minSecMatch[2]);
-      return Math.min(3600, Math.max(1, Math.ceil(mins * 60 + secs)));
-    }
+    // 3a. Check for explicit duration in combined text
+    const explicitDuration = parseDurationString(combined);
 
-    // 3b. Minutes only pattern (e.g. "try again in 2 minutes", "resets in 1.5 mins")
-    const minMatch = combined.match(/(?:try again|retry|wait|resets?|cooling down|rate limit)(?:\s+(?:in|after))?\s*[:]?\s*(\d+(?:\.\d+)?)\s*(?:m|min|mins|minutes?)\b/i);
-    if (minMatch) {
-      const mins = parseFloat(minMatch[1]);
-      if (!isNaN(mins) && mins > 0) {
-        return Math.min(3600, Math.max(1, Math.ceil(mins * 60)));
+    // 4a. Check if error indicates MONTHLY quota / credits / token exhaustion
+    const isMonthlyLimit =
+      /monthly (?:quota|limit|usage|budget|credits?|token limit)/i.test(combined) ||
+      /tokens? per month/i.test(combined) ||
+      /requests? per month/i.test(combined) ||
+      /per[- ]month/i.test(combined) ||
+      /exceeded your monthly/i.test(combined) ||
+      /exhausted your monthly/i.test(combined) ||
+      /monthly tokens? exhausted/i.test(combined) ||
+      /trial (?:balance|credits?|period) (?:expired|exhausted|depleted)/i.test(combined) ||
+      /out of (?:monthly tokens|credits for the month)/i.test(combined);
+
+    if (isMonthlyLimit) {
+      if (explicitDuration && explicitDuration > 86400) {
+        return Math.min(3888000, explicitDuration);
       }
+      return getSecondsUntilNextMonth();
     }
 
-    // 3c. Seconds pattern (e.g. "try again in 15.2s", "retry after 30 seconds", "resets in 45s", "wait: 20s")
-    const secMatch = combined.match(/(?:try again|retry|wait|resets?|cooling down|rate limit)(?:\s+(?:in|after))?\s*[:]?\s*(\d+(?:\.\d+)?)\s*(?:s|sec|secs|seconds?)\b/i);
-    if (secMatch) {
-      const secs = parseFloat(secMatch[1]);
-      if (!isNaN(secs) && secs > 0) {
-        return Math.min(3600, Math.max(1, Math.ceil(secs)));
+    // 4b. Check if error indicates DAILY limit / tokens for the day
+    const isDailyLimit =
+      /requests per day/i.test(combined) ||
+      /tokens per day/i.test(combined) ||
+      /\bRPD\b/.test(combined) ||
+      /\bTPD\b/.test(combined) ||
+      /per[- ]day/i.test(combined) ||
+      /daily (?:quota|limit|usage|rate limit|credits?|token limit)/i.test(combined) ||
+      /ran out of tokens for the day/i.test(combined) ||
+      /out of (?:tokens|credits) for (?:the day|today)/i.test(combined) ||
+      /for the day/i.test(combined) ||
+      /today's (?:quota|limit)/i.test(combined) ||
+      /free tier daily/i.test(combined) ||
+      /free daily limit/i.test(combined) ||
+      /exceeded your daily/i.test(combined) ||
+      /exhausted your daily/i.test(combined) ||
+      /exhausted your (?:monthly\/)?daily credits/i.test(combined) ||
+      /quota metric 'Generate Content API requests per day'/i.test(combined) ||
+      /quota metric 'Tokens per day'/i.test(combined) ||
+      /free tier limit exceeded for requests per day/i.test(combined) ||
+      /limit 14400, used 14400/i.test(combined);
+
+    if (isDailyLimit) {
+      // If the provider explicitly stated how long until daily reset (e.g. Groq 'Please try again in 5h23m12s')
+      if (explicitDuration && explicitDuration > 60) {
+        return Math.min(86400, Math.max(1, explicitDuration));
       }
-    }
-
-    // 3d. Fallback generic "in X seconds" / "after X seconds"
-    const genericSecMatch = combined.match(/(?:in|after)\s*(\d+(?:\.\d+)?)\s*(?:s|sec|secs|seconds?)\b/i);
-    if (genericSecMatch) {
-      const secs = parseFloat(genericSecMatch[1]);
-      if (!isNaN(secs) && secs > 0) {
-        return Math.min(3600, Math.max(1, Math.ceil(secs)));
+      // If no explicit time was stated, assign bigger timeframe (until UTC midnight or custom daily timeframe)
+      const customDailySec = Number(process.env.DAILY_COOLDOWN_SECONDS || options.dailyCooldownSeconds);
+      if (!isNaN(customDailySec) && customDailySec > 0) {
+        return Math.min(86400, customDailySec);
       }
+      return getSecondsUntilNextUtcMidnight();
     }
 
-    // 4. Fallback defaults by error type
+    // If explicit duration found for regular rate limit
+    if (explicitDuration) {
+      return Math.min(3888000, Math.max(1, explicitDuration));
+    }
+
+    // 5. Fallback defaults by error type
     const isRateLimit =
       err?.type === ErrorType.RATE_LIMIT ||
       err?.rawError?.response?.status === 429 ||
@@ -170,7 +586,7 @@ export class ObjectNormalizer {
       /rate limit|too many requests|429|quota/i.test(combined);
 
     if (isRateLimit) {
-      return Math.min(3600, Math.max(5, fallbackSeconds));
+      return Math.min(3888000, Math.max(5, fallbackSeconds));
     }
 
     const isNetworkOrTimeout =
@@ -184,6 +600,34 @@ export class ObjectNormalizer {
     }
 
     return 30;
+  }
+
+  /**
+   * Identifies the category of rate limit (month, day, minute) from error messages or headers
+   */
+  public detectRateLimitType(err: any): RateLimitType {
+    const parts: string[] = [
+      err?.message || '',
+      err?.rawError?.message || '',
+      typeof err?.rawError?.response?.data === 'string'
+        ? err.rawError.response.data
+        : JSON.stringify(err?.rawError?.response?.data || ''),
+      typeof err?.response?.data === 'string'
+        ? err.response.data
+        : JSON.stringify(err?.response?.data || ''),
+      typeof err?.details === 'string'
+        ? err.details
+        : JSON.stringify(err?.details || '')
+    ];
+    const combined = parts.join(' ');
+
+    if (/monthly|per[- ]month|tokens? per month|requests? per month|monthly quota|monthly limit|monthly budget|free trial credits|trial balance/i.test(combined)) {
+      return 'month';
+    }
+    if (/requests per day|tokens per day|\bRPD\b|\bTPD\b|per[- ]day|daily|for the day|today's quota|exhausted your daily/i.test(combined)) {
+      return 'day';
+    }
+    return 'minute';
   }
 
   /**
@@ -365,10 +809,13 @@ export class ObjectNormalizer {
       }
     }
 
-    // 2. Check if Chunked Multipart Processing is needed for complex monsters
+    // 2. Smart provider-aware chunking decision
     const isMonster = (options.template || '').toLowerCase().trim() === 'monster';
-    if ((options.chunked || (options.chunked === undefined && EntitySectioner.shouldSection(text, options.template))) && isMonster) {
-      console.log(`[Normalizer] Breaking complex monster into semantic parts to prevent token limit cutoff...`);
+    const activeProvider = this.getNextAvailableProvider(options);
+    const shouldChunk = this.shouldChunkForProvider(text, activeProvider, options);
+
+    if (shouldChunk && isMonster) {
+      console.log(`[Normalizer] Entity length (${text.length} chars) exceeds threshold (${this.getProviderChunkThreshold(activeProvider)} chars) for "${activeProvider?.name || 'provider'}". Processing in semantic chunks...`);
       const chunkedResult = await this.normalizeChunkedMonster(text, targetSchema, options);
       if (!options.skipCache) {
         this.cache.set(cacheKey, chunkedResult, options.cacheTtlMs);
@@ -376,8 +823,36 @@ export class ObjectNormalizer {
       return chunkedResult as any;
     }
 
-    // 3. Single Execution via Cascading Providers
-    const execRes = await this.executeSingleNormalization(text, targetSchema, options);
+    // 3. Single Execution via Cascading Providers with Adaptive Self-Healing Chunking on Cutoff
+    let execRes: {
+      data: any;
+      rawOutput: string;
+      provider: string;
+      usedFallback: boolean;
+      attemptedProviders: string[];
+    };
+    try {
+      execRes = await this.executeSingleNormalization(text, targetSchema, options);
+    } catch (err: any) {
+      // If single execution failed specifically due to token cutoff or truncated JSON and text has actions,
+      // dynamically self-heal by switching to semantic chunking!
+      const isTruncation =
+        err.type === ErrorType.PARSE_ERROR ||
+        /unexpected end of JSON|unterminated|token limit|max_tokens|cutoff/i.test(err.message || '');
+
+      if (isMonster && isTruncation && options.chunked !== false) {
+        console.warn(`[Normalizer] Single-shot output was truncated or invalid for "${activeProvider?.name || 'provider'}". Self-healing via multipart chunking...`);
+        if (activeProvider) {
+          this.clearCooldown(activeProvider.name);
+        }
+        const chunkedResult = await this.normalizeChunkedMonster(text, targetSchema, options);
+        if (!options.skipCache) {
+          this.cache.set(cacheKey, chunkedResult, options.cacheTtlMs);
+        }
+        return chunkedResult as any;
+      }
+      throw err;
+    }
 
     if (isMonster) {
       this.enrichMonster2024Attributes(execRes.data, text);
@@ -493,10 +968,14 @@ export class ObjectNormalizer {
 
       const cdRemaining = this.getCooldownRemaining(provider.name);
       if (cdRemaining > 0) {
+        const remHuman = cdRemaining >= 3600
+          ? `${(cdRemaining / 3600).toFixed(1)}h`
+          : `${cdRemaining}s`;
         throw new NormalizerError(
-          `Provider "${provider.name}" is temporarily offline for ${cdRemaining} more seconds (rate-limit cooldown). Try again later or use automatic cascade.`,
+          `Provider "${provider.name}" is temporarily offline for ${remHuman} more (rate-limit cooldown). Try again later or use automatic cascade.`,
           ErrorType.RATE_LIMIT,
-          provider.name
+          provider.name,
+          cdRemaining
         );
       }
 
@@ -510,7 +989,23 @@ export class ObjectNormalizer {
 
       try {
         await this.enforceCallPacing(provider, options.minIntervalMs);
-        rawOutput = await provider.normalize(sanitizedText, targetSchema, options);
+        const providerTimeoutMs = options.providerTimeoutMs || 12000;
+        let timer: NodeJS.Timeout | undefined;
+        const timeoutPromise = new Promise<string>((_, reject) => {
+          timer = setTimeout(() => {
+            reject(new NormalizerError(`Provider "${provider.name}" timed out after ${providerTimeoutMs / 1000}s`, ErrorType.NETWORK_ERROR, provider.name));
+          }, providerTimeoutMs);
+        });
+
+        try {
+          rawOutput = await Promise.race([
+            provider.normalize(sanitizedText, targetSchema, { ...options, providerTimeoutMs }),
+            timeoutPromise
+          ]);
+        } finally {
+          if (timer) clearTimeout(timer);
+        }
+
         this.lastCallTime.set(provider.name, Date.now());
         usedProvider = provider.name;
         const parsedData = PropertyValidator.extractJson(rawOutput);
@@ -523,8 +1018,31 @@ export class ObjectNormalizer {
         };
       } catch (err: any) {
         this.lastCallTime.set(provider.name, Date.now());
-        const cooldownSec = this.parseCooldownSeconds(err, options.defaultCooldownSeconds || 60);
-        this.setProviderCooldown(provider.name, cooldownSec, err.message || 'Provider call failed');
+        const cooldownSec = this.parseCooldownSeconds(err, options.defaultCooldownSeconds || 60, options);
+        const rateLimitType = this.detectRateLimitType(err);
+        this.setProviderCooldown(provider.name, cooldownSec, err.message || 'Provider call failed', rateLimitType);
+
+        if (this.store) {
+          const providerId = this.findProviderId(provider.name);
+          this.store.recordError(providerId, err.message || 'Provider call failed').catch(() => {});
+        }
+
+        // Check authentication or revoked key failure
+        const isAuthError =
+          err?.status === 401 ||
+          err?.status === 403 ||
+          err?.response?.status === 401 ||
+          err?.response?.status === 403 ||
+          err?.rawError?.response?.status === 401 ||
+          err?.rawError?.response?.status === 403 ||
+          /invalid (?:api[ _]?key|token|credential)|unauthorized|authentication failed|invalid authentication/i.test(err?.message || '');
+        if (isAuthError && this.store) {
+          const providerId = this.findProviderId(provider.name);
+          this.store.setValidity(providerId, false, err.message || 'Authentication failed').catch(() => {});
+          if (typeof provider.setAvailable === 'function') {
+            provider.setAvailable(false);
+          }
+        }
         throw err;
       }
     } else {
@@ -539,15 +1057,18 @@ export class ObjectNormalizer {
       for (let i = 0; i < this.providers.length; i++) {
         const provider = this.providers[i];
 
-        // Guard: Mock/Deterministic provider is only used in cascade if options.allowMock === true
-        if (this.isMockProvider(provider) && !options.allowMock) {
+        // Guard: Mock/Deterministic provider is used unless explicitly disabled (allowMock === false)
+        if (this.isMockProvider(provider) && options.allowMock === false) {
           continue;
         }
 
         // 1. Check cooldown
         const remainingCooldown = this.getCooldownRemaining(provider.name);
         if (remainingCooldown > 0) {
-          errorDetails.push(`${provider.name}: offline in cooldown (${remainingCooldown}s remaining)`);
+          const remHuman = remainingCooldown >= 3600
+            ? `${(remainingCooldown / 3600).toFixed(1)}h`
+            : `${remainingCooldown}s`;
+          errorDetails.push(`${provider.name}: offline in cooldown (${remHuman} remaining)`);
           continue;
         }
 
@@ -563,7 +1084,23 @@ export class ObjectNormalizer {
           // Enforce pacing interval before calling external provider
           await this.enforceCallPacing(provider, options.minIntervalMs);
 
-          rawOutput = await provider.normalize(sanitizedText, targetSchema, options);
+          const providerTimeoutMs = options.providerTimeoutMs || 12000;
+          let timer: NodeJS.Timeout | undefined;
+          const timeoutPromise = new Promise<string>((_, reject) => {
+            timer = setTimeout(() => {
+              reject(new NormalizerError(`Provider "${provider.name}" timed out after ${providerTimeoutMs / 1000}s`, ErrorType.NETWORK_ERROR, provider.name));
+            }, providerTimeoutMs);
+          });
+
+          try {
+            rawOutput = await Promise.race([
+              provider.normalize(sanitizedText, targetSchema, { ...options, providerTimeoutMs }),
+              timeoutPromise
+            ]);
+          } finally {
+            if (timer) clearTimeout(timer);
+          }
+
           this.lastCallTime.set(provider.name, Date.now());
 
           const parsedData = PropertyValidator.extractJson(rawOutput);
@@ -584,9 +1121,38 @@ export class ObjectNormalizer {
           console.warn(`[Normalizer] Provider "${provider.name}" failed: ${errMsg}`);
           errorDetails.push(`${provider.name}: ${errMsg}`);
 
-          // Set provider offline for parsed cooldown duration
-          const cooldownSec = this.parseCooldownSeconds(err, options.defaultCooldownSeconds || 60);
-          this.setProviderCooldown(provider.name, cooldownSec, errMsg);
+          // Record error in store
+          if (this.store) {
+            const providerId = this.findProviderId(provider.name);
+            this.store.recordError(providerId, errMsg).catch(() => {});
+          }
+
+          // Check authentication or revoked key failure
+          const isAuthError =
+            err?.status === 401 ||
+            err?.status === 403 ||
+            err?.response?.status === 401 ||
+            err?.response?.status === 403 ||
+            err?.rawError?.response?.status === 401 ||
+            err?.rawError?.response?.status === 403 ||
+            /invalid (?:api[ _]?key|token|credential)|unauthorized|authentication failed|invalid authentication/i.test(errMsg);
+          if (isAuthError) {
+            const providerId = this.findProviderId(provider.name);
+            if (this.store) {
+              this.store.setValidity(providerId, false, errMsg).catch(() => {});
+            }
+            if (typeof provider.setAvailable === 'function') {
+              provider.setAvailable(false);
+            }
+          }
+
+          // Set provider offline for parsed cooldown duration only if network/rate-limit error, not format/truncation error
+          const isParseOrTruncation = err.type === ErrorType.PARSE_ERROR || /JSON|parse|unterminated|truncat|max_tokens/i.test(errMsg);
+          if (!isParseOrTruncation) {
+            const cooldownSec = this.parseCooldownSeconds(err, options.defaultCooldownSeconds || 60, options);
+            const rateLimitType = this.detectRateLimitType(err);
+            this.setProviderCooldown(provider.name, cooldownSec, errMsg, rateLimitType);
+          }
 
           // Proceed to next priority provider
         }
@@ -983,6 +1549,8 @@ export class ObjectNormalizer {
         inCooldown,
         cooldownRemainingSeconds: inCooldown ? remaining : 0,
         cooldownReason: inCooldown ? cd?.reason : undefined,
+        cooldownUntil: inCooldown && cd ? new Date(cd.until).toISOString() : undefined,
+        isValid: typeof p.isAvailable === 'function' ? p.isAvailable() : true,
         type: this.isMockProvider(p)
           ? 'mock'
           : p.name.toLowerCase().includes('ollama')

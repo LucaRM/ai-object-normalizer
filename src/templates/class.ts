@@ -3,6 +3,43 @@ export const CLASS_TEMPLATE = {
   name: 'Fighter',
   description: 'Fighters master the martial arts, combat maneuvers, and all manner of weapons and armor. Exceptional warriors, they excel in battle with sheer stamina and devastating precision.',
   flavorText: 'A master of martial combat, skilled with a variety of weapons and armor.',
+  hitDie: '1d10',
+  primaryAbility: 'Strength',
+  savingThrowProficiency: ['Strength', 'Constitution'],
+  armorProficiency: ['Light Armor', 'Medium Armor', 'Heavy Armor', 'Shield'],
+  weaponProficiency: ['Simple Weapons', 'Martial Weapons'],
+  toolProficiency: [],
+  skillProficiency: [
+    'Acrobatics',
+    'Animal Handling',
+    'Athletics',
+    'History',
+    'Insight',
+    'Intimidation',
+    'Perception',
+    'Survival'
+  ],
+  startingEquipment: 'Chain Mail or Leather Armor with Longbow, Martial Weapon and Shield or two Martial Weapons.',
+  features: [
+    {
+      name: 'Fighting Style',
+      description: 'You hone your martial prowess with a Fighting Style feat of your choice.',
+      category: 'Combat',
+      classLevel: 1
+    },
+    {
+      name: 'Second Wind',
+      description: 'You have a limited well of stamina that you can draw on to protect yourself from harm. On your turn, you can use a Bonus Action to regain Hit Points equal to 1d10 plus your Fighter level.',
+      category: 'Combat',
+      classLevel: 1
+    },
+    {
+      name: 'Weapon Mastery',
+      description: 'Your training with weapons allows you to use the Mastery properties of three kinds of weapons of your choice.',
+      category: 'Combat',
+      classLevel: 1
+    }
+  ],
   traits: {
     hitDie: '1d10',
     primaryAbility: ['Strength', 'Dexterity'],
@@ -116,15 +153,20 @@ export const CLASS_TEMPLATE = {
 };
 
 export const CLASS_PROMPT_GUIDE = `### SPECIAL INSTRUCTIONS FOR D&D CLASSES:
-1. traits.hitDie: Must be formatted like "1d6", "1d8", "1d10", or "1d12".
-2. traits.primaryAbility: Array of ability names (e.g., ["Strength"] or ["Strength", "Dexterity"]).
-3. traits.savingThrowProficiencies: Exactly two saving throws granted at level 1 (e.g. ["Strength", "Constitution"]).
-4. traits.skillProficiencies: Object with choose (number) and from (array of skill names).
-5. traits.armorProficiencies: Array of standard armor categories (e.g. ["Light Armor", "Medium Armor", "Heavy Armor", "Shield"]).
-6. traits.weaponProficiencies: Array of weapon categories (e.g. ["Simple Weapons", "Martial Weapons"]).
-7. spellcasting: Set spellcastingType to 'none', 'full', 'half', 'third', or 'pact'. Set spellcastingAbility to 'Intelligence', 'Wisdom', 'Charisma', or null.
-8. levelProgression: Array of level objects [{ level: number, proficiencyBonus: number, features: ClassFeature[] }].
-   Each feature inside features has { name, description, category, classLevel }.
+1. name: Extract the class name strictly from the first line or header (e.g. "Barbarian", "Fighter", "Rogue"). NEVER default to "Fighter" unless the text is about Fighters!
+2. Root-Level Structured Fields (Crucial for Character Sheet & API Automation):
+   - hitDie: String representing hit die (e.g. "d12" or "1d12" for Barbarian, "1d10" for Fighter, "1d8" for Rogue, "1d6" for Wizard).
+   - primaryAbility: String representing primary ability (e.g. "Strength" for Barbarian, "Dexterity" for Rogue, "Intelligence" for Wizard).
+   - savingThrowProficiency: Array of 2 ability strings (e.g. ["Strength", "Constitution"] for Barbarian/Fighter, ["Dexterity", "Intelligence"] for Rogue).
+   - armorProficiency: Array of armor training (e.g. ["Light Armor", "Medium Armor", "Shields"] for Barbarian).
+   - weaponProficiency: Array of weapon proficiencies (e.g. ["Simple Weapons", "Martial Weapons"]).
+   - toolProficiency: Array of tool proficiencies (e.g. [] or ["Thieves' Tools"]).
+   - skillProficiency: Array of available skill options.
+   - startingEquipment: Summary string or equipment description.
+   - features: Flat array of all class features extracted from the text [{ name, description, classLevel, category }].
+3. traits: Also populate the traits object containing hitDie, primaryAbility, savingThrowProficiencies, armorProficiencies, weaponProficiencies for backward compatibility.
+4. spellcasting: Set spellcastingType to 'none', 'full', 'half', 'third', or 'pact'. Set spellcastingAbility to 'Intelligence', 'Wisdom', 'Charisma', or null.
+5. levelProgression: Array of level objects [{ level: number, proficiencyBonus: number, features: ClassFeature[] }].
    Category must be one of: ['Class Feature', 'Combat', 'Utility', 'Spellcasting', 'Active', 'Passive'].`;
 
 export const CLASS_EXAMPLE_PARAGRAPH = `Fighter

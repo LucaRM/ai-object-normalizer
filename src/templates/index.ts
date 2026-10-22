@@ -7,7 +7,8 @@ import { SUBCLASS_TEMPLATE, SUBCLASS_EXAMPLE_PARAGRAPH, SUBCLASS_PROMPT_GUIDE } 
 import { FEAT_TEMPLATE, FEAT_EXAMPLE_PARAGRAPH, FEAT_PROMPT_GUIDE } from './feat';
 import { BACKGROUND_TEMPLATE, BACKGROUND_EXAMPLE_PARAGRAPH, BACKGROUND_PROMPT_GUIDE } from './background';
 import { WEAPON_TEMPLATE, WEAPON_EXAMPLE_PARAGRAPH, WEAPON_PROMPT_GUIDE } from './weapon';
-import { ITEM_TEMPLATE, ITEM_EXAMPLE_PARAGRAPH } from './item';
+import { ARMOR_TEMPLATE, ARMOR_EXAMPLE_PARAGRAPH, ARMOR_PROMPT_GUIDE } from './armor';
+import { ITEM_TEMPLATE, ITEM_EXAMPLE_PARAGRAPH, ITEM_PROMPT_GUIDE } from './item';
 
 export interface TemplateDefinition {
   name: string;
@@ -91,11 +92,20 @@ export const TEMPLATES: Record<string, TemplateDefinition> = {
     promptGuide: WEAPON_PROMPT_GUIDE,
     exampleParagraph: WEAPON_EXAMPLE_PARAGRAPH
   },
+  armor: {
+    name: 'armor',
+    category: 'Equipment',
+    description: 'D&D 5e Armor & Shield definition with armorClass, armorType, strengthRequirement, and stealth',
+    schema: ARMOR_TEMPLATE,
+    promptGuide: ARMOR_PROMPT_GUIDE,
+    exampleParagraph: ARMOR_EXAMPLE_PARAGRAPH
+  },
   item: {
     name: 'item',
     category: 'Equipment',
-    description: 'D&D 5e General Item / Gear with cost, weight, and description',
+    description: 'D&D 5e General Item / Gear with entityType, cost, weight, and description',
     schema: ITEM_TEMPLATE,
+    promptGuide: ITEM_PROMPT_GUIDE,
     exampleParagraph: ITEM_EXAMPLE_PARAGRAPH
   }
 };
@@ -104,6 +114,10 @@ export const TEMPLATES: Record<string, TemplateDefinition> = {
 TEMPLATES['magicalitem'] = TEMPLATES['magical-item'];
 TEMPLATES['magic-item'] = TEMPLATES['magical-item'];
 TEMPLATES['race'] = TEMPLATES['species'];
+TEMPLATES['armour'] = TEMPLATES['armor'];
+TEMPLATES['shield'] = TEMPLATES['armor'];
+TEMPLATES['equipment'] = TEMPLATES['item'];
+TEMPLATES['gear'] = TEMPLATES['item'];
 
 export function getTemplate(name: string): TemplateDefinition | undefined {
   if (!name) return undefined;
@@ -132,4 +146,5 @@ export * from './subclass';
 export * from './feat';
 export * from './background';
 export * from './weapon';
+export * from './armor';
 export * from './item';

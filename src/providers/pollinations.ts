@@ -20,57 +20,78 @@ export class PollinationsProvider implements NormalizerProvider {
   }
 
   async normalize(text: string, schema: any, options: NormalizeOptions): Promise<string> {
+    const timeoutMs = options?.providerTimeoutMs || 12000;
     try {
-      const prompt = this.buildPrompt(text, schema, options);
-      const url = 'https://text.pollinations.ai/';
+      const candidateModels = Array.from(new Set([this.model, 'openai', 'mistral', 'llama', 'deepseek']));
+      let lastError: any = null;
 
-      const response = await axios.post(
-        url,
-        {
-          messages: [
-            {
-              role: 'user',
-              content: prompt
-            }
-          ],
-          model: this.model,
-          jsonMode: true
-        },
-        {
-          headers: { 'Content-Type': 'application/json' },
-          timeout: 50000
-        }
-      );
+      for (const model of candidateModels) {
+      try {
+        const prompt = this.buildPrompt(text, schema, options);
+        const url = 'https://text.pollinations.ai/';
 
-      // Extract content from OpenAI-compatible response or direct data
-      let responseText: any = response.data?.choices?.[0]?.message?.content || response.data;
+        const response = await axios.post(
+          url,
+          {
+            messages: [
+              {
+                role: 'user',
+                content: prompt
+              }
+            ],
+            model,
+            jsonMode: true
+          },
+          {
+            headers: { 'Content-Type': 'application/json' },
+            timeout: timeoutMs,
+            signal: AbortSignal.timeout(timeoutMs)
+          }
+        );
 
-      if (typeof responseText === 'string') {
-        responseText = responseText.replace(/```json\s*/gi, '').replace(/```\s*$/g, '').trim();
-      } else if (typeof responseText === 'object' && responseText !== null) {
-        // If Pollinations returned a reasoning wrapper object without entity data
-        if (responseText.reasoning && !responseText.name && !responseText.content) {
-          throw new NormalizerError(
-            'Pollinations returned reasoning tokens without entity content',
-            ErrorType.PARSE_ERROR,
-            this.name
-          );
+        // Extract content from OpenAI-compatible response or direct data
+        let responseText: any = response.data?.choices?.[0]?.message?.content || response.data;
+
+        if (typeof responseText === 'string') {
+          responseText = responseText.replace(/```json\s*/gi, '').replace(/```\s*$/g, '').trim();
+        } else if (typeof responseText === 'object' && responseText !== null) {
+          // If Pollinations returned a reasoning wrapper object without entity data
+          if (responseText.reasoning && !responseText.name && !responseText.content) {
+            continue; // Try next free model
+          }
+          if (typeof responseText.content === 'string') {
+            responseText = responseText.content.replace(/```json\s*/gi, '').replace(/```\s*$/g, '').trim();
+          } else {
+            responseText = JSON.stringify(responseText);
+          }
         }
-        if (typeof responseText.content === 'string') {
-          responseText = responseText.content.replace(/```json\s*/gi, '').replace(/```\s*$/g, '').trim();
-        } else {
-          responseText = JSON.stringify(responseText);
+
+        if (typeof responseText === 'string' && responseText.trim().length > 0) {
+          return responseText.trim();
         }
+      } catch (err: any) {
+        lastError = err;
+        // If aborted/timeout, stop looping
+        if (err.name === 'AbortError' || err.code === 'ERR_CANCELED') break;
       }
+    }
 
-      if (typeof responseText === 'string' && responseText.trim().length > 0) {
-        return responseText.trim();
-      }
-
-      throw new NormalizerError('Empty response from Pollinations free AI', ErrorType.API_ERROR, this.name);
-    } catch (error: any) {
+    if (lastError instanceof NormalizerError) {
+      throw lastError;
+    }
+    throw lastError || new NormalizerError('Empty response from Pollinations free AI models', ErrorType.API_ERROR, this.name);
+  } catch (error: any) {
       if (error instanceof NormalizerError) {
         throw error;
+      }
+      if (error.name === 'AbortError' || error.code === 'ECONNABORTED' || error.code === 'ERR_CANCELED' || /timeout/i.test(error.message)) {
+        throw new NormalizerError(
+          `Pollinations request timed out after ${timeoutMs}ms`,
+          ErrorType.NETWORK_ERROR,
+          this.name,
+          undefined,
+          error
+        );
       }
       const status = error.response?.status;
       const retryAfter = error.response?.headers?.['retry-after'];

@@ -27,6 +27,7 @@ export class AnthropicProvider implements NormalizerProvider {
       throw new NormalizerError('Anthropic API key is required', ErrorType.API_ERROR, this.name);
     }
 
+    const timeoutMs = options?.providerTimeoutMs || 12000;
     try {
       const prompt = this.buildPrompt(text, schema, options);
 
@@ -51,7 +52,8 @@ export class AnthropicProvider implements NormalizerProvider {
             'x-api-key': this.apiKey,
             'anthropic-version': '2023-06-01'
           },
-          timeout: 25000
+          timeout: timeoutMs,
+          signal: AbortSignal.timeout(timeoutMs)
         }
       );
 
@@ -64,6 +66,15 @@ export class AnthropicProvider implements NormalizerProvider {
     } catch (error: any) {
       if (error instanceof NormalizerError) {
         throw error;
+      }
+      if (error.name === 'AbortError' || error.code === 'ECONNABORTED' || error.code === 'ERR_CANCELED' || /timeout/i.test(error.message)) {
+        throw new NormalizerError(
+          `Anthropic request timed out after ${timeoutMs}ms`,
+          ErrorType.NETWORK_ERROR,
+          this.name,
+          undefined,
+          error
+        );
       }
       const status = error.response?.status;
       const retryAfter = error.response?.headers?.['retry-after'];

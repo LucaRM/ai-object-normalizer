@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="dark">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Object Normalizer - AI Schema Extractor & Validator</title>
+  <title>Object Normalizer - AI Schema Extractor & Provider Manager</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&family=Outfit:wght@500;600;700;800&display=swap" rel="stylesheet">
@@ -17,25 +17,46 @@
         <div class="brand-icon">⚡</div>
         <div class="brand-text">
           <h1>Object Normalizer</h1>
-          <span class="brand-tagline">AI-Powered Cascading Extraction & Property Validation</span>
+          <span class="brand-tagline">Cascading AI Normalization, Real-time Validation & Provider Hub</span>
         </div>
       </div>
-      <div class="header-status">
-        <div class="status-indicator">
+
+      <!-- Navigation Tabs -->
+      <nav class="main-nav-tabs">
+        <button type="button" class="nav-tab-btn active" data-view="view-playground" id="nav-btn-playground">
+          <span class="nav-icon">⚡</span>
+          <span class="nav-title">Normalizer</span>
+        </button>
+        <button type="button" class="nav-tab-btn" data-view="view-providers" id="nav-btn-providers">
+          <span class="nav-icon">🔌</span>
+          <span class="nav-title">Providers Hub</span>
+          <span class="nav-count-badge" id="nav-active-count">0/0</span>
+        </button>
+        <button type="button" class="nav-tab-btn" data-view="view-swagger" id="nav-btn-swagger">
+          <span class="nav-icon">📖</span>
+          <span class="nav-title">Swagger API</span>
+        </button>
+      </nav>
+
+      <!-- Right Header Controls: Theme Switcher & Status -->
+      <div class="header-controls">
+        <button type="button" class="theme-toggle-btn" id="btn-theme-toggle" title="Toggle Light / Dark Mode">
+          <span class="theme-icon" id="theme-icon">🌙</span>
+          <span class="theme-text" id="theme-text">Dark</span>
+        </button>
+
+        <div class="status-indicator" title="Service Health">
           <span class="status-dot"></span>
           <span id="service-status">Connected</span>
         </div>
-        <div class="providers-pill" id="providers-summary" title="Active Cascading Providers">
-          <span class="pill-label">Cascade:</span>
-          <span class="pill-value" id="active-providers-count">Loading...</span>
-        </div>
-        <a href="#api-docs" class="header-btn" id="docs-btn">API Docs</a>
       </div>
     </header>
 
-    <!-- Main Workspace -->
-    <main class="app-main">
-      <!-- Left Column: Input & Configuration -->
+    <!-- ======================================================== -->
+    <!-- VIEW 1: NORMALIZATION PLAYGROUND                        -->
+    <!-- ======================================================== -->
+    <main class="app-main view-panel" id="view-playground">
+      <!-- Left Column: Input & Schema -->
       <section class="panel input-panel">
         <div class="panel-header">
           <h2>Input & Schema</h2>
@@ -120,15 +141,7 @@
             <div class="setting-item">
               <label for="provider-select">Provider Strategy</label>
               <select id="provider-select" class="custom-select-sm">
-                <option value="cascade">⚡ Automatic Cascade (Gemini → Groq → Free AI → Mock)</option>
-                <option value="pollinations">Free True LLM (Pollinations - No Key Needed)</option>
-                <option value="gemini">Gemini Only (Google AI Studio Free Tier)</option>
-                <option value="groq">Groq Only (Fast Free LLaMA 3.3)</option>
-                <option value="openrouter">OpenRouter Free Models</option>
-                <option value="ollama">Ollama (Local Offline LLM)</option>
-                <option value="openai">OpenAI Only</option>
-                <option value="anthropic">Anthropic Only</option>
-                <option value="mock">Mock / Heuristic Only</option>
+                <option value="cascade">⚡ Automatic Priority Cascade (Healthy Providers First)</option>
               </select>
             </div>
 
@@ -232,52 +245,197 @@
       </section>
     </main>
 
-    <!-- API Reference Drawer / Modal -->
-    <div class="modal-backdrop" id="docs-modal" style="display: none;">
-      <div class="modal-box">
+    <!-- ======================================================== -->
+    <!-- VIEW 2: PROVIDERS HUB & STATUS MONITOR                   -->
+    <!-- ======================================================== -->
+    <main class="providers-view view-panel" id="view-providers" style="display: none;">
+      <!-- Top Metrics Dashboard -->
+      <section class="providers-metrics-bar">
+        <div class="metrics-card-group">
+          <div class="metric-box box-total">
+            <span class="metric-value" id="stat-total-count">0</span>
+            <span class="metric-label">Total Providers</span>
+          </div>
+          <div class="metric-box box-ok">
+            <span class="metric-status-glow green">⚡</span>
+            <span class="metric-value" id="stat-ok-count">0</span>
+            <span class="metric-label">Operational (🟢)</span>
+          </div>
+          <div class="metric-box box-waiting">
+            <span class="metric-status-glow yellow">⚡</span>
+            <span class="metric-value" id="stat-waiting-count">0</span>
+            <span class="metric-label">Waiting &le;1d (🟡)</span>
+          </div>
+          <div class="metric-box box-off">
+            <span class="metric-status-glow red">⚡</span>
+            <span class="metric-value" id="stat-off-count">0</span>
+            <span class="metric-label">Off / &gt;1d / Invalid (🔴)</span>
+          </div>
+          <div class="metric-box box-db">
+            <span class="db-badge" id="stat-db-badge">🍃 MongoDB</span>
+            <span class="metric-label" id="stat-db-status-desc">Persistent Store Active</span>
+          </div>
+        </div>
+
+        <div class="hub-action-buttons">
+          <button type="button" class="btn-primary btn-sm" id="btn-add-provider-modal">
+            <span>➕ Add New Provider</span>
+          </button>
+          <button type="button" class="btn-secondary btn-sm" id="btn-sync-database" title="Re-read keys and settings from .env">
+            <span>🔄 Sync from .env</span>
+          </button>
+          <button type="button" class="btn-secondary btn-sm" id="btn-reset-all" title="Clear all active cooldowns">
+            <span>⚡ Clear Cooldowns</span>
+          </button>
+        </div>
+      </section>
+
+      <!-- Status Explanation Key / Legend -->
+      <div class="status-legend-bar">
+        <span class="legend-title">⚡ Status Color Rules:</span>
+        <span class="legend-item"><strong class="legend-dot green">⚡ Green:</strong> Operational & Ready</span>
+        <span class="legend-item"><strong class="legend-dot yellow">⚡ Yellow:</strong> Waiting in Cooldown (&le;24 hours)</span>
+        <span class="legend-item"><strong class="legend-dot red">⚡ Red:</strong> Turned Off manually, Invalid Key, or Long-term Quota (&gt;24h / Monthly)</span>
+      </div>
+
+      <!-- Search and Filter Bar -->
+      <div class="providers-filter-bar">
+        <div class="search-input-wrap">
+          <span class="search-icon">🔍</span>
+          <input type="text" id="filter-search" class="search-field" placeholder="Search provider, model, architecture...">
+        </div>
+        <div class="filter-pill-group">
+          <button type="button" class="filter-btn active" data-filter="all">All (<span id="filter-count-all">0</span>)</button>
+          <button type="button" class="filter-btn" data-filter="green">🟢 Operational (<span id="filter-count-green">0</span>)</button>
+          <button type="button" class="filter-btn" data-filter="yellow">🟡 Waiting (&le;1d) (<span id="filter-count-yellow">0</span>)</button>
+          <button type="button" class="filter-btn" data-filter="red">🔴 Turned Off / &gt;1d (<span id="filter-count-red">0</span>)</button>
+        </div>
+      </div>
+
+      <!-- Providers Cards Grid -->
+      <section class="providers-grid" id="providers-container">
+        <!-- Rendered dynamically by JavaScript -->
+        <div class="loading-state">
+          <div class="loading-spinner"></div>
+          <p>Loading provider statuses from database...</p>
+        </div>
+      </section>
+    </main>
+
+    <!-- ======================================================== -->
+    <!-- VIEW 3: SWAGGER INTERACTIVE API DOCS                    -->
+    <!-- ======================================================== -->
+    <main class="swagger-view view-panel" id="view-swagger" style="display: none;">
+      <div class="swagger-panel">
+        <div class="swagger-top-bar">
+          <div class="swagger-titles">
+            <h2>Interactive Swagger / OpenAPI Documentation</h2>
+            <p>Directly test endpoints, schemas, validation logic, and provider controls.</p>
+          </div>
+          <div class="swagger-bar-actions">
+            <a href="/docs" target="_blank" class="btn-primary btn-sm">🔗 Open in New Window</a>
+            <a href="/swagger.json" target="_blank" class="btn-secondary btn-sm">📥 Swagger JSON</a>
+          </div>
+        </div>
+        <iframe src="/docs" id="swagger-frame" class="swagger-frame" title="Swagger UI Documentation"></iframe>
+      </div>
+    </main>
+
+    <!-- ======================================================== -->
+    <!-- MODAL: ADD NEW PROVIDER                                  -->
+    <!-- ======================================================== -->
+    <div class="modal-backdrop" id="modal-add-provider" style="display: none;">
+      <div class="modal-box modal-medium">
         <div class="modal-header">
-          <h3>REST API Usage Reference</h3>
-          <button type="button" class="close-btn" id="close-docs-btn">✕</button>
+          <h3>➕ Register AI Provider</h3>
+          <button type="button" class="close-btn" id="close-add-modal-btn">✕</button>
         </div>
         <div class="modal-body">
-          <p class="modal-desc">You can call this API directly in your backend cascade pipeline (e.g. from <code>luca-app</code> or background workers):</p>
-          <div class="endpoint-block">
-            <div class="endpoint-pill"><span class="method post">POST</span> <code>/normalize</code></div>
-            <pre class="api-code-sample">curl -X POST http://localhost:3009/normalize \
-  -H "Content-Type: application/json" \
-  -d '{
-    "template": "monster",
-    "text": "Tiger\nLarge Beast, Unaligned\nArmor Class 13...",
-    "autoSplit": true,
-    "options": {
-      "targetLocale": "pt-BR",
-      "format": "all"
-    }
-  }'</pre>
+          <form id="form-new-provider">
+            <div class="form-grid-2">
+              <div class="form-group">
+                <label for="input-new-id">Provider ID *</label>
+                <input type="text" id="input-new-id" class="custom-input" placeholder="e.g. fireworks, together, custom-vllm" required>
+                <span class="field-hint">Unique lowercase alphanumeric ID</span>
+              </div>
+              <div class="form-group">
+                <label for="input-new-name">Display Name *</label>
+                <input type="text" id="input-new-name" class="custom-input" placeholder="e.g. Fireworks AI" required>
+              </div>
+            </div>
+
+            <div class="form-grid-2">
+              <div class="form-group">
+                <label for="input-new-type">Architecture Type</label>
+                <select id="input-new-type" class="custom-select">
+                  <option value="openai-compatible" selected>OpenAI Compatible (v1/chat/completions)</option>
+                  <option value="groq">Groq Architecture</option>
+                  <option value="cerebras">Cerebras Fast Inference</option>
+                  <option value="sambanova">SambaNova SN40L</option>
+                  <option value="mistral">Mistral AI</option>
+                  <option value="custom">Generic Custom HTTP</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label for="input-new-model">Model Name *</label>
+                <input type="text" id="input-new-model" class="custom-input" placeholder="e.g. accounts/fireworks/models/llama-v3p3-70b-instruct" required>
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label for="input-new-key">API Key / Bearer Token</label>
+              <input type="password" id="input-new-key" class="custom-input" placeholder="Paste API token (leave empty if keyless proxy)">
+            </div>
+
+            <div class="form-group">
+              <label for="input-new-url">Base URL (For custom endpoints)</label>
+              <input type="text" id="input-new-url" class="custom-input" placeholder="e.g. https://api.fireworks.ai/inference/v1 or http://localhost:8000/v1">
+            </div>
+
+            <div class="form-group checkbox-item">
+              <label class="checkbox-label">
+                <input type="checkbox" id="input-new-enabled" checked>
+                <span><strong>Active in Rotation</strong> (Enabled by default)</span>
+              </label>
+            </div>
+
+            <div class="modal-actions-footer">
+              <button type="button" class="btn-secondary" id="btn-cancel-add">Cancel</button>
+              <button type="submit" class="btn-primary" id="btn-save-provider">Save & Register Provider</button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
+
+    <!-- ======================================================== -->
+    <!-- MODAL: CUSTOM COOLDOWN PICKER                           -->
+    <!-- ======================================================== -->
+    <div class="modal-backdrop" id="modal-cooldown-picker" style="display: none;">
+      <div class="modal-box modal-sm">
+        <div class="modal-header">
+          <h3>⏳ Set Provider Cooldown</h3>
+          <button type="button" class="close-btn" id="close-cooldown-modal-btn">✕</button>
+        </div>
+        <div class="modal-body">
+          <p class="modal-desc">Configure a persistent cooldown for <strong id="cd-modal-prov-name">Provider</strong>:</p>
+          <div class="cooldown-presets-grid">
+            <button type="button" class="cd-preset-btn" data-cd="900" data-type="minute">15 Minutes</button>
+            <button type="button" class="cd-preset-btn" data-cd="3600" data-type="minute">1 Hour</button>
+            <button type="button" class="cd-preset-btn" data-cd="86400" data-type="day">24 Hours (Day)</button>
+            <button type="button" class="cd-preset-btn" data-type="month" style="grid-column: span 2;">📅 Whole Month (Until 1st of Next Month UTC)</button>
           </div>
-          <div class="endpoint-block">
-            <div class="endpoint-pill"><span class="method post">POST</span> <code>/preprocess</code></div>
-            <pre class="api-code-sample">curl -X POST http://localhost:3009/preprocess \
-  -H "Content-Type: application/json" \
-  -d '{
-    "text": "[Ankheg](url)\nLarge Monstrosity...\n\n[Animated Armor](url)..."
-  }'
-// Returns: { count: 2, entities: [ { name: "Ankheg", ... }, ... ] }</pre>
-          </div>
-          <div class="endpoint-block">
-            <div class="endpoint-pill"><span class="method post">POST</span> <code>/normalize/batch</code></div>
-            <pre class="api-code-sample">curl -X POST http://localhost:3009/normalize/batch \
-  -H "Content-Type: application/json" \
-  -d '{
-    "items": [
-      { "template": "monster", "text": "Tiger...", "options": { "targetLocale": "pt-BR" } },
-      { "template": "monster", "text": "Lion...", "options": { "targetLocale": "pt-BR" } }
-    ]
-  }'</pre>
+          <div class="form-group custom-cd-row">
+            <label for="input-custom-seconds">Custom Seconds:</label>
+            <div class="input-with-button">
+              <input type="number" id="input-custom-seconds" class="custom-input" placeholder="e.g. 1800">
+              <button type="button" class="btn-primary btn-sm" id="btn-apply-custom-cd">Apply</button>
+            </div>
           </div>
         </div>
       </div>
     </div>
+
   </div>
 
   <script src="app.js"></script>

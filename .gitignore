@@ -6,3 +6,4 @@ test/
 tests/
 scratch/
 .DS_Store
+data/

@@ -110,6 +110,18 @@ export interface NormalizeOptions {
    * Defaults to 60 seconds (or process.env.DEFAULT_COOLDOWN_SECONDS).
    */
   defaultCooldownSeconds?: number;
+
+  /**
+   * Cooldown duration in seconds when an AI provider exhausts its daily token / request quota.
+   * If not set, automatically calculates seconds until next UTC midnight reset (between 4h and 24h).
+   */
+  dailyCooldownSeconds?: number;
+
+  /**
+   * Internal timeout in milliseconds for each external provider call before failing over.
+   * Defaults to 12000ms.
+   */
+  providerTimeoutMs?: number;
 }
 
 export interface CustomCheckRule {
@@ -196,4 +208,6 @@ export interface ProviderInfo {
   inCooldown?: boolean;
   cooldownRemainingSeconds?: number;
   cooldownReason?: string;
+  cooldownUntil?: string;
+  isValid?: boolean;
 }

@@ -40,7 +40,7 @@ export class FreeTranslator {
             sourceLanguage: sourceLocale
           }
         },
-        { timeout: 3000 }
+        { timeout: 3000, signal: AbortSignal.timeout(3000) }
       );
 
       if (res.data?.translatedText) {
@@ -76,7 +76,8 @@ export class FreeTranslator {
           q: trimmed,
           langpair
         },
-        timeout: 8000,
+        timeout: 6000,
+        signal: AbortSignal.timeout(6000),
         headers: { 'User-Agent': 'Mozilla/5.0' }
       });
 

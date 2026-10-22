@@ -5,31 +5,42 @@ export const SUBCLASS_TEMPLATE = {
   flavorText: 'A martial archetype that excels in raw physical power and devastating critical hits.',
   classId: 'Fighter',
   className: 'Fighter',
+  traits: {
+    armorProficiencies: [],
+    weaponProficiencies: [],
+    toolProficiencies: [],
+    savingThrowProficiencies: []
+  },
   features: [
     {
       name: 'Improved Critical',
       description: 'Your weapon attacks score a critical hit on a roll of 19 or 20 on the d20.',
-      level: 3
+      level: 3,
+      actionType: 'passive'
     },
     {
       name: 'Remarkable Athlete',
       description: 'You can add half your proficiency bonus (round up) to any Strength, Dexterity, or Constitution check you make that does not already use your proficiency bonus. In addition, when you make a running long jump, the distance you can cover increases by a number of feet equal to your Strength modifier.',
-      level: 7
+      level: 7,
+      actionType: 'passive'
     },
     {
       name: 'Additional Fighting Style',
       description: 'You can choose a second Fighting Style feat.',
-      level: 10
+      level: 10,
+      actionType: 'passive'
     },
     {
       name: 'Superior Critical',
       description: 'Your weapon attacks score a critical hit on a roll of 18–20 on the d20.',
-      level: 15
+      level: 15,
+      actionType: 'passive'
     },
     {
       name: 'Survivor',
       description: 'You attain the pinnacle of resilience in battle. At the start of each of your turns in combat, you regain Hit Points equal to 5 + your Constitution modifier if you have no more than half of your Hit Points left.',
-      level: 18
+      level: 18,
+      actionType: 'passive'
     }
   ],
   books: ["Player's Handbook 2024"],
@@ -42,23 +53,28 @@ export const SUBCLASS_TEMPLATE = {
       features: [
         {
           name: 'Crítico Aprimorado',
-          description: 'Seus ataques com armas obtêm um acerto crítico com uma rolagem de 19 ou 20 no d20.'
+          description: 'Seus ataques com armas obtêm um acerto crítico com uma rolagem de 19 ou 20 no d20.',
+          actionType: 'passive'
         },
         {
           name: 'Atleta Notável',
-          description: 'Você pode adicionar metade do seu bônus de proficiência a testes de Força, Destreza ou Constituição que ainda não usem proficiência.'
+          description: 'Você pode adicionar metade do seu bônus de proficiência a testes de Força, Destreza ou Constituição que ainda não usem proficiência.',
+          actionType: 'passive'
         },
         {
           name: 'Estilo de Luta Adicional',
-          description: 'Você pode escolher um segundo talento de Estilo de Luta.'
+          description: 'Você pode escolher um segundo talento de Estilo de Luta.',
+          actionType: 'passive'
         },
         {
           name: 'Crítico Superior',
-          description: 'Seus ataques com armas obtêm um acerto crítico com uma rolagem de 18 a 20 no d20.'
+          description: 'Seus ataques com armas obtêm um acerto crítico com uma rolagem de 18 a 20 no d20.',
+          actionType: 'passive'
         },
         {
           name: 'Sobrevivente',
-          description: 'No início de cada um dos seus turnos em combate, você recupera Pontos de Vida iguais a 5 + seu modificador de Constituição se tiver metade ou menos dos seus PV.'
+          description: 'No início de cada um dos seus turnos em combate, você recupera Pontos de Vida iguais a 5 + seu modificador de Constituição se tiver metade ou menos dos seus PV.',
+          actionType: 'passive'
         }
       ],
       _metadata: {
@@ -76,15 +92,26 @@ export const SUBCLASS_TEMPLATE = {
 };
 
 export const SUBCLASS_PROMPT_GUIDE = `### SPECIAL INSTRUCTIONS FOR D&D SUBCLASSES:
-1. name: Subclass archetype name (e.g., "Champion", "Evoker", "Circle of the Moon").
-2. className: Name of the parent class (e.g., "Fighter", "Wizard", "Druid", "Paladin").
-3. classId: Return the human-readable NAME of the parent class (e.g. "Fighter") - do NOT generate an ObjectId. The importing script will resolve the database relationship by matching the class name.
-4. features: Array of subclass features. Each feature must have:
+1. name: Subclass archetype name (e.g., "Champion", "Life Domain", "Battle Master", "Eldritch Knight").
+2. className: Name of the parent class (e.g., "Fighter", "Cleric", "Wizard", "Rogue", "Bard").
+3. classId: Return the human-readable NAME of the parent class (e.g. "Fighter") - do NOT generate an ObjectId.
+4. traits: Extract any bonus proficiencies granted by the subclass into root traits:
+   - armorProficiencies: Array of armor proficiencies granted (e.g. ["Heavy armor"], ["Medium armor", "Shields"]).
+   - weaponProficiencies: Array of weapon proficiencies granted (e.g. ["Martial weapons"]).
+   - toolProficiencies: Array of tool proficiencies granted (e.g. ["Artisan's tools", "Disguise kit"]).
+   - savingThrowProficiencies: Array of saving throws granted.
+5. features: Array of subclass features. Each feature must have:
    - name: Feature name
    - description: Complete feature rules text
-   - level: Numeric class level when feature is unlocked (e.g. 3, 7, 10, 15, 18 for Fighter; 3, 6, 14 for Sorcerer; 2, 6, 10, 14 for Wizard).
-5. If the subclass grants spells (e.g. Domain spells, Oath spells, Circle spells), extract them into spellList array using spell NAMES (e.g. [{ level: 3, spells: ["Bless", "Cure Wounds"] }]).
-6. books: Array of source book names (e.g. ["Player's Handbook 2024"]) or book ObjectIds.`;
+   - level: Numeric class level when feature is unlocked (e.g. 3, 7, 10, 15, 18). CRITICAL: If a feature does not explicitly state a level, default to 3 (the archetype kickoff level). Never leave level as null.
+   - actionType: Action economy classification: "action", "bonus action", "reaction", or "passive". Look for phrasing like "As an action", "As a bonus action", "As a reaction".
+6. MANEUVER SUBCLASSES (e.g. Battle Master): If the subclass grants maneuvers or Combat Superiority, set:
+   - subclassManeuverPackTag: "battle-master"
+   - superiorityDiceType: "d8" (or the die type specified)
+7. SUBCLASS SPELLCASTING (e.g. Eldritch Knight, Arcane Trickster): If the subclass grants spellcasting to a non-spellcasting class, populate:
+   - spellcasting: { spellcastingAbility: "Intelligence", spellcastingType: "known" }
+8. If the subclass grants bonus spells (e.g. Domain spells, Oath spells, Circle spells), extract them into spellList array using spell NAMES (e.g. [{ level: 3, spells: ["Bless", "Cure Wounds"] }]).
+9. books: Array of source book names (e.g. ["Player's Handbook 2024"]).`;
 
 export const SUBCLASS_EXAMPLE_PARAGRAPH = `Champion
 Fighter Subclass

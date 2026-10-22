@@ -10,16 +10,27 @@ import { AnthropicProvider } from './providers/anthropic';
 import { GroqProvider } from './providers/groq';
 import { OllamaProvider } from './providers/ollama';
 import { OpenRouterProvider } from './providers/openrouter';
+import { CohereProvider } from './providers/cohere';
 import { PollinationsProvider } from './providers/pollinations';
 import { OVHProvider } from './providers/ovh';
 import { MockProvider } from './providers/mock';
+import { CerebrasProvider } from './providers/cerebras';
+import { SambaNovaProvider } from './providers/sambanova';
+import { MistralProvider } from './providers/mistral';
+import { GitHubModelsProvider } from './providers/github';
+import { DeepSeekProvider } from './providers/deepseek';
+import { HuggingFaceProvider } from './providers/huggingface';
 import { listTemplates, getTemplate } from './templates';
 import { PropertyValidator } from './pipeline/validator';
 import { ObjectFormatter } from './pipeline/formatter';
 import { TextSplitter } from './pipeline/splitter';
 import { NormalizeOptions, BatchNormalizeResult } from './types';
+import { getProviderStore, IProviderStore } from './database';
+import swaggerUi from 'swagger-ui-express';
+import { swaggerDocument } from './swagger';
 
-dotenv.config();
+// Ensure .env in object-normalizer directory is loaded regardless of execution CWD
+dotenv.config({ path: path.resolve(__dirname, '../.env') });
 
 const app = express();
 const PORT = process.env.PORT || 3009;
@@ -31,22 +42,51 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 // Serve interactive Web UI playground
 app.use(express.static(path.join(__dirname, '../public')));
 
+// Swagger UI Documentation
+app.use('/docs', swaggerUi.serve, swaggerUi.setup(swaggerDocument, {
+  customSiteTitle: 'Object Normalizer - API Documentation',
+  customCss: '.swagger-ui .topbar { display: none }',
+  swaggerOptions: { persistAuthorization: true }
+}));
+app.get('/swagger', (req: Request, res: Response) => res.redirect('/docs'));
+app.get('/swagger.json', (req: Request, res: Response) => res.json(swaggerDocument));
+
 /**
  * Initialize normalizer cascading providers
  */
 function initializeNormalizer(): ObjectNormalizer {
   const normalizer = new ObjectNormalizer();
 
-  // 1. Free Keyless AI Models (Zero signup, zero API keys required - active by default, like automatic-translator)
-  normalizer.addProvider(new PollinationsProvider());
-  normalizer.addProvider(new OVHProvider());
-
-  // 2. Cloud AI Model Providers (Active when API keys are configured in .env)
+  // 1. Ultra-fast and high-volume free tier providers
+  if (process.env.GROQ_API_KEY) {
+    normalizer.addProvider(new GroqProvider(process.env.GROQ_API_KEY));
+  }
+  if (process.env.CEREBRAS_API_KEY) {
+    normalizer.addProvider(new CerebrasProvider(process.env.CEREBRAS_API_KEY));
+  }
+  if (process.env.SAMBANOVA_API_KEY) {
+    normalizer.addProvider(new SambaNovaProvider(process.env.SAMBANOVA_API_KEY));
+  }
   if (process.env.GEMINI_API_KEY) {
     normalizer.addProvider(new GeminiProvider(process.env.GEMINI_API_KEY));
   }
-  if (process.env.GROQ_API_KEY) {
-    normalizer.addProvider(new GroqProvider(process.env.GROQ_API_KEY));
+  if (process.env.GITHUB_TOKEN || process.env.GH_TOKEN) {
+    normalizer.addProvider(new GitHubModelsProvider(process.env.GITHUB_TOKEN || process.env.GH_TOKEN));
+  }
+  if (process.env.MISTRAL_API_KEY) {
+    normalizer.addProvider(new MistralProvider(process.env.MISTRAL_API_KEY));
+  }
+  if (process.env.DEEPSEEK_API_KEY) {
+    normalizer.addProvider(new DeepSeekProvider(process.env.DEEPSEEK_API_KEY));
+  }
+  if (process.env.OPENROUTER_API_KEY) {
+    normalizer.addProvider(new OpenRouterProvider(process.env.OPENROUTER_API_KEY));
+  }
+  if (process.env.COHERE_API_KEY) {
+    normalizer.addProvider(new CohereProvider(process.env.COHERE_API_KEY));
+  }
+  if (process.env.HUGGINGFACE_API_KEY || process.env.HF_TOKEN) {
+    normalizer.addProvider(new HuggingFaceProvider(process.env.HUGGINGFACE_API_KEY || process.env.HF_TOKEN));
   }
   if (process.env.OPENAI_API_KEY) {
     normalizer.addProvider(new OpenAIProvider(process.env.OPENAI_API_KEY));
@@ -54,12 +94,13 @@ function initializeNormalizer(): ObjectNormalizer {
   if (process.env.ANTHROPIC_API_KEY) {
     normalizer.addProvider(new AnthropicProvider(process.env.ANTHROPIC_API_KEY));
   }
-  if (process.env.OPENROUTER_API_KEY) {
-    normalizer.addProvider(new OpenRouterProvider(process.env.OPENROUTER_API_KEY));
-  }
   if (process.env.OLLAMA_ENABLED === 'true') {
     normalizer.addProvider(new OllamaProvider());
   }
+
+  // 2. Free Keyless AI Models (Zero signup, zero API keys required - active by default)
+  normalizer.addProvider(new PollinationsProvider());
+  normalizer.addProvider(new OVHProvider());
 
   // 3. Mock / Intelligent Heuristic Rule Extractor (Guarantees zero-failure fallback & offline testing)
   normalizer.addProvider(new MockProvider());
@@ -68,6 +109,21 @@ function initializeNormalizer(): ObjectNormalizer {
 }
 
 const normalizer = initializeNormalizer();
+const store = getProviderStore();
+normalizer.setStore(store);
+
+// Asynchronously connect database and sync providers on startup
+(async () => {
+  try {
+    await store.connect();
+    await store.syncFromEnv();
+    await normalizer.syncWithStore(store);
+    const status = await store.getStatus();
+    console.log(`📦 Provider Database Ready: [Engine: ${status.engine.toUpperCase()}] Connected: ${status.connected} | Tracked: ${status.providerCount} providers (${status.inCooldownCount} in cooldown, ${status.invalidCount} invalid)`);
+  } catch (err: any) {
+    console.warn(`[Server] Note: Provider database startup sync: ${err.message}`);
+  }
+})();
 
 // Health check endpoint
 app.get('/health', (req: Request, res: Response) => {
@@ -118,6 +174,321 @@ app.post('/providers/cooldown', (req: Request, res: Response) => {
     message: `Provider "${provider}" set offline for ${seconds} seconds`,
     providers: normalizer.getAllProvidersInfo()
   });
+});
+
+// ========================================================
+// PERSISTENT DATABASE & PROVIDER MANAGEMENT ENDPOINTS
+// ========================================================
+
+// Get database engine status and counts
+app.get('/database/status', async (req: Request, res: Response) => {
+  try {
+    const status = await store.getStatus();
+    res.json({
+      success: true,
+      status
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// List all providers tracked in database with computed status color and error details
+app.get('/database/providers', async (req: Request, res: Response) => {
+  try {
+    const docs = await store.getAll();
+    const now = Date.now();
+    const showKeys = req.query.showKeys === 'true';
+    const formatted = docs.map(doc => {
+      const untilMs = doc.cooldownUntil ? new Date(doc.cooldownUntil).getTime() : 0;
+      const inCooldown = untilMs > now;
+      const cooldownRemainingSeconds = inCooldown ? Math.ceil((untilMs - now) / 1000) : 0;
+      const isManuallyOff = doc.manuallyDisabled === true || doc.isAvailable === false;
+      const isInvalid = doc.isValid === false;
+      const isLongCooldown = inCooldown && cooldownRemainingSeconds > 86400;
+
+      // Lightning status color logic:
+      // - Red: Turned off, invalid key, or cooldown > 1 day (e.g. monthly quota)
+      // - Yellow: Waiting in cooldown <= 1 day
+      // - Green: Operational / okay
+      let statusColor: 'green' | 'yellow' | 'red' = 'green';
+      let statusLabel = 'Operational';
+
+      if (isManuallyOff) {
+        statusColor = 'red';
+        statusLabel = 'Turned Off';
+      } else if (isInvalid) {
+        statusColor = 'red';
+        statusLabel = 'Invalid Key / Auth Error';
+      } else if (isLongCooldown) {
+        statusColor = 'red';
+        statusLabel = 'Monthly Quota (>1 Day)';
+      } else if (inCooldown) {
+        statusColor = 'yellow';
+        statusLabel = 'Waiting (Cooldown)';
+      }
+
+      return {
+        ...doc,
+        apiKey: showKeys ? doc.apiKey : (doc.apiKey ? `${doc.apiKey.slice(0, 6)}...${doc.apiKey.slice(-4)}` : undefined),
+        hasApiKey: Boolean(doc.apiKey && doc.apiKey.length > 0),
+        inCooldown,
+        cooldownRemainingSeconds,
+        statusColor,
+        statusLabel,
+        isManuallyOff,
+        lastErrorMessage: doc.lastErrorMessage || (isInvalid ? doc.validationError : undefined),
+        lastErrorAt: doc.lastErrorAt || undefined
+      };
+    });
+    res.json({
+      success: true,
+      total: formatted.length,
+      providers: formatted
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Get single provider from database
+app.get('/database/providers/:id', async (req: Request, res: Response) => {
+  try {
+    const paramId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+    const doc = await store.get(paramId);
+    if (!doc) {
+      return res.status(404).json({ error: `Provider "${paramId}" not found in database` });
+    }
+    const showKeys = req.query.showKeys === 'true';
+    const untilMs = doc.cooldownUntil ? new Date(doc.cooldownUntil).getTime() : 0;
+    const inCooldown = untilMs > Date.now();
+    const cooldownRemainingSeconds = inCooldown ? Math.ceil((untilMs - Date.now()) / 1000) : 0;
+
+    res.json({
+      success: true,
+      provider: {
+        ...doc,
+        apiKey: showKeys ? doc.apiKey : (doc.apiKey ? `${doc.apiKey.slice(0, 6)}...${doc.apiKey.slice(-4)}` : undefined),
+        hasApiKey: Boolean(doc.apiKey && doc.apiKey.length > 0),
+        inCooldown,
+        cooldownRemainingSeconds
+      }
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Upsert provider (create or update keys, models, metadata)
+app.post('/database/providers', async (req: Request, res: Response) => {
+  try {
+    const { id, name, apiKey, model, isValid, isAvailable, metadata } = req.body;
+    if (!id || typeof id !== 'string') {
+      return res.status(400).json({ error: 'Property "id" is required (e.g. "groq", "gemini", "github")' });
+    }
+    const updated = await store.upsert({
+      id,
+      name,
+      apiKey,
+      model,
+      isValid,
+      isAvailable,
+      metadata
+    });
+    await normalizer.syncWithStore(store);
+    res.json({
+      success: true,
+      provider: updated
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Set custom cooldown timestamp on a provider (supports seconds, days, until timestamp, or 'month')
+app.post('/database/providers/:id/cooldown', async (req: Request, res: Response) => {
+  try {
+    const paramId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+    const { seconds, days, until, reason = 'Manual cooldown requested', rateLimitType } = req.body;
+
+    let targetUntil: Date;
+    let targetSeconds = 0;
+    let limitType = rateLimitType;
+
+    if (until) {
+      targetUntil = new Date(until);
+      targetSeconds = Math.max(1, Math.ceil((targetUntil.getTime() - Date.now()) / 1000));
+    } else if (days) {
+      targetSeconds = Math.round(Number(days) * 86400);
+      targetUntil = new Date(Date.now() + targetSeconds * 1000);
+      if (!limitType) limitType = 'day';
+    } else if (limitType === 'month') {
+      const now = new Date();
+      targetUntil = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1, 0, 2, 0));
+      targetSeconds = Math.max(1, Math.ceil((targetUntil.getTime() - Date.now()) / 1000));
+    } else {
+      targetSeconds = Number(seconds) || 60;
+      targetUntil = new Date(Date.now() + targetSeconds * 1000);
+    }
+
+    const updated = await store.setCooldown(paramId, targetUntil, reason, limitType);
+    if (!updated) {
+      return res.status(404).json({ error: `Provider "${paramId}" not found in database` });
+    }
+
+    // Also apply to normalizer in memory immediately
+    normalizer.setProviderCooldown(updated.name || paramId, targetSeconds, reason, limitType);
+
+    res.json({
+      success: true,
+      message: `Provider "${paramId}" set on cooldown until ${targetUntil.toISOString()}`,
+      provider: updated
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Clear cooldown and restore provider to active rotation
+app.post('/database/providers/:id/reset', async (req: Request, res: Response) => {
+  try {
+    const paramId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+    const updated = await store.clearCooldown(paramId);
+    if (!updated) {
+      return res.status(404).json({ error: `Provider "${paramId}" not found in database` });
+    }
+
+    // Clear in normalizer in memory immediately
+    normalizer.clearCooldown(updated.name || paramId);
+
+    res.json({
+      success: true,
+      message: `Cooldown cleared for provider "${paramId}"`,
+      provider: updated
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Mark provider as valid or invalid (e.g. revoked key, authentication issue)
+app.post('/database/providers/:id/validity', async (req: Request, res: Response) => {
+  try {
+    const paramId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+    const { isValid, validationError } = req.body;
+    if (typeof isValid !== 'boolean') {
+      return res.status(400).json({ error: 'Property "isValid" (boolean) is required' });
+    }
+
+    const updated = await store.setValidity(paramId, isValid, validationError);
+    if (!updated) {
+      return res.status(404).json({ error: `Provider "${paramId}" not found in database` });
+    }
+
+    await normalizer.syncWithStore(store);
+
+    res.json({
+      success: true,
+      message: `Provider "${paramId}" validity set to ${isValid}`,
+      provider: updated
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Tick provider on or off manually (persists and stays off)
+app.post('/database/providers/:id/toggle', async (req: Request, res: Response) => {
+  try {
+    const paramId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+    const { enabled } = req.body;
+    if (typeof enabled !== 'boolean') {
+      return res.status(400).json({ error: 'Property "enabled" (boolean) is required' });
+    }
+
+    const updated = await store.setManualState(paramId, enabled);
+    if (!updated) {
+      return res.status(404).json({ error: `Provider "${paramId}" not found in database` });
+    }
+
+    // Immediately toggle in normalizer memory
+    normalizer.setProviderAvailability(updated.name || paramId, enabled);
+
+    res.json({
+      success: true,
+      message: `Provider "${paramId}" ${enabled ? 'enabled' : 'disabled'} successfully`,
+      provider: updated
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Test provider connection ping
+app.post('/database/providers/:id/test', async (req: Request, res: Response) => {
+  try {
+    const paramId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+    const doc = await store.get(paramId);
+    if (!doc) {
+      return res.status(404).json({ error: `Provider "${paramId}" not found in database` });
+    }
+
+    const startTime = Date.now();
+    const testSample = "Goblin\nSmall Humanoid, Neutral Evil\nArmor Class 15\nHit Points 7\nSpeed 30 ft.";
+    const result = await normalizer.normalize(testSample, 'monster', {
+      specificProvider: doc.name || paramId,
+      allowMock: false,
+      providerTimeoutMs: 8000
+    });
+
+    res.json({
+      success: true,
+      message: `Provider "${doc.name}" connection test succeeded in ${Date.now() - startTime}ms`,
+      latencyMs: Date.now() - startTime,
+      provider: result.provider,
+      sampleExtracted: result.data?.name || 'Goblin'
+    });
+  } catch (err: any) {
+    res.status(502).json({
+      success: false,
+      error: err.message || 'Provider connection test failed'
+    });
+  }
+});
+
+// Delete a custom provider
+app.delete('/database/providers/:id', async (req: Request, res: Response) => {
+  try {
+    const paramId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+    if (typeof (store as any).delete === 'function') {
+      await (store as any).delete(paramId);
+    }
+    normalizer.removeProvider(paramId);
+    res.json({
+      success: true,
+      message: `Provider "${paramId}" deleted successfully`
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Re-sync database from .env file
+app.post('/database/sync', async (req: Request, res: Response) => {
+  try {
+    const result = await store.syncFromEnv();
+    await normalizer.syncWithStore(store);
+    const status = await store.getStatus();
+
+    res.json({
+      success: true,
+      message: 'Database synced with .env successfully',
+      syncResult: result,
+      databaseStatus: status
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // List predefined templates
@@ -182,8 +553,12 @@ app.post('/normalize', async (req: Request, res: Response) => {
       ...(req.body.cacheTtlMs !== undefined && { cacheTtlMs: Number(req.body.cacheTtlMs) }),
       ...(req.body.minIntervalMs !== undefined && { minIntervalMs: Number(req.body.minIntervalMs) }),
       ...(req.body.defaultCooldownSeconds !== undefined && { defaultCooldownSeconds: Number(req.body.defaultCooldownSeconds) }),
+      ...(req.body.dailyCooldownSeconds !== undefined && { dailyCooldownSeconds: Number(req.body.dailyCooldownSeconds) }),
+      ...(req.body.providerTimeoutMs !== undefined && { providerTimeoutMs: Number(req.body.providerTimeoutMs) }),
       ...(req.headers['x-min-interval-ms'] && { minIntervalMs: Number(req.headers['x-min-interval-ms']) }),
       ...(req.headers['x-cooldown-seconds'] && { defaultCooldownSeconds: Number(req.headers['x-cooldown-seconds']) }),
+      ...(req.headers['x-daily-cooldown-seconds'] && { dailyCooldownSeconds: Number(req.headers['x-daily-cooldown-seconds']) }),
+      ...(req.headers['x-provider-timeout-ms'] && { providerTimeoutMs: Number(req.headers['x-provider-timeout-ms']) }),
       ...(req.body.targetLocale && { targetLocale: req.body.targetLocale }),
       ...(getHeaderString(req.headers['x-target-locale']) && { targetLocale: getHeaderString(req.headers['x-target-locale']) }),
       ...(req.body.sourceLocale && { sourceLocale: req.body.sourceLocale })
@@ -192,12 +567,22 @@ app.post('/normalize', async (req: Request, res: Response) => {
     const reqGeminiKey = getHeaderString(req.headers['x-gemini-key']) || getHeaderString(req.headers['x-api-key']);
     const reqOpenAiKey = getHeaderString(req.headers['x-openai-key']);
     const reqGroqKey = getHeaderString(req.headers['x-groq-key']);
+    const reqCerebrasKey = getHeaderString(req.headers['x-cerebras-key']);
+    const reqSambaNovaKey = getHeaderString(req.headers['x-sambanova-key']);
+    const reqMistralKey = getHeaderString(req.headers['x-mistral-key']);
+    const reqGitHubKey = getHeaderString(req.headers['x-github-token']) || getHeaderString(req.headers['x-github-key']);
+    const reqDeepSeekKey = getHeaderString(req.headers['x-deepseek-key']);
 
     let activeNormalizer = normalizer;
-    if (reqGeminiKey || reqOpenAiKey || reqGroqKey) {
+    if (reqGeminiKey || reqOpenAiKey || reqGroqKey || reqCerebrasKey || reqSambaNovaKey || reqMistralKey || reqGitHubKey || reqDeepSeekKey) {
       activeNormalizer = new ObjectNormalizer();
-      if (reqGeminiKey) activeNormalizer.addProvider(new GeminiProvider(reqGeminiKey));
       if (reqGroqKey) activeNormalizer.addProvider(new GroqProvider(reqGroqKey));
+      if (reqCerebrasKey) activeNormalizer.addProvider(new CerebrasProvider(reqCerebrasKey));
+      if (reqSambaNovaKey) activeNormalizer.addProvider(new SambaNovaProvider(reqSambaNovaKey));
+      if (reqGeminiKey) activeNormalizer.addProvider(new GeminiProvider(reqGeminiKey));
+      if (reqGitHubKey) activeNormalizer.addProvider(new GitHubModelsProvider(reqGitHubKey));
+      if (reqMistralKey) activeNormalizer.addProvider(new MistralProvider(reqMistralKey));
+      if (reqDeepSeekKey) activeNormalizer.addProvider(new DeepSeekProvider(reqDeepSeekKey));
       if (reqOpenAiKey) activeNormalizer.addProvider(new OpenAIProvider(reqOpenAiKey));
       activeNormalizer.addProvider(new PollinationsProvider());
       activeNormalizer.addProvider(new OVHProvider());
@@ -473,7 +858,21 @@ app.post('/cache/clear', (req: Request, res: Response) => {
   });
 });
 
-app.listen(PORT, () => {
+const server = app.listen(PORT);
+
+server.on('error', (err: any) => {
+  if (err.code === 'EADDRINUSE') {
+    console.error(`\n❌ Error: Port ${PORT} is already in use by another process.`);
+    console.error(`   To free port ${PORT} on Windows PowerShell, run:`);
+    console.error(`   Stop-Process -Id (Get-NetTCPConnection -LocalPort ${PORT}).OwningProcess -Force\n`);
+    process.exit(1);
+  } else {
+    console.error(`\n❌ Server error:`, err);
+    process.exit(1);
+  }
+});
+
+server.on('listening', () => {
   console.log(`\n======================================================`);
   console.log(`🚀 Object Normalizer API running at http://localhost:${PORT}`);
   console.log(`📡 Available cascading providers: ${normalizer.getAvailableProviders().join(', ')}`);
@@ -486,7 +885,26 @@ app.listen(PORT, () => {
   console.log(`  GET  /templates        - List predefined schemas`);
   console.log(`  GET  /templates/:name  - Retrieve template and example text`);
   console.log(`  GET  /providers        - List available providers`);
+  console.log(`  GET  /database/status  - Provider database engine and tracking status`);
+  console.log(`  GET  /database/providers - List all tracked AI providers & persistent cooldowns`);
   console.log(`  GET  /health           - Health check status\n`);
 });
+
+// Configure generous timeouts for large batch normalization runs
+server.setTimeout(600000); // 10 minutes socket timeout
+server.keepAliveTimeout = 65000;
+server.headersTimeout = 66000;
+
+// Graceful shutdown on process termination signals
+const gracefulShutdown = () => {
+  store.disconnect().catch(() => {});
+  server.close(() => {
+    process.exit(0);
+  });
+  setTimeout(() => process.exit(0), 3000).unref();
+};
+
+process.on('SIGINT', gracefulShutdown);
+process.on('SIGTERM', gracefulShutdown);
 
 export default app;

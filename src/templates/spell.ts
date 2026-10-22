@@ -1,13 +1,18 @@
 export const SPELL_TEMPLATE = {
   _id: '68e065e63483269c7c881810',
   name: 'Fireball',
-  level: '3',
+  level: 3,
   school: 'Evocation',
   castingAction: 'Action',
   castingTime: '1 Action',
   duration: 'Instantaneous',
   range: '150 feet',
-  components: 'V, S, M (a tiny ball of bat guano and sulfur)',
+  components: {
+    verbal: true,
+    somatic: true,
+    material: true,
+    materialsDescription: 'a tiny ball of bat guano and sulfur'
+  },
   damageType: 'fire',
   description: 'A bright streak flashes from your pointing finger to a point you choose within range and then blossoms with a low roar into an explosion of flame. Each creature in a 20-foot-radius sphere centered on that point must make a Dexterity saving throw. A target takes 8d6 fire damage on a failed save, or half as much damage on a successful one.\n\nThe fire spreads around corners. It ignites flammable objects in the area that aren’t being worn or carried.',
   atHigherLevels: 'When you cast this spell using a spell slot of 4th level or higher, the damage increases by 1d6 for each slot level above 3rd.',
@@ -36,12 +41,12 @@ export const SPELL_TEMPLATE = {
 };
 
 export const SPELL_PROMPT_GUIDE = `### SPECIAL INSTRUCTIONS FOR D&D SPELLS:
-1. level: Level as string ("0" for Cantrip, "1", "2", "3", etc.).
+1. level: Numeric integer (0 for Cantrip, 1, 2, 3, etc. NEVER return "0" or "cantrip" as a string).
 2. school: Standard spell school ('Abjuration', 'Conjuration', 'Divination', 'Enchantment', 'Evocation', 'Illusion', 'Necromancy', 'Transmutation').
 3. castingAction: Primary action economy: 'Action', 'Bonus Action', 'Reaction', or 'Special'.
 4. castingTime: Full casting time line (e.g., "1 Action", "1 Bonus Action", "1 Reaction, which you take when...").
 5. range: Range string (e.g. "150 feet", "Touch", "Self (15-foot cone)").
-6. components: Components string (e.g., "V, S, M (a tiny ball of bat guano and sulfur)").
+6. components: Structured object { "verbal": boolean, "somatic": boolean, "material": boolean, "materialsDescription"?: string } (e.g., { "verbal": true, "somatic": true, "material": true, "materialsDescription": "a tiny ball of bat guano and sulfur" }).
 7. duration: Duration string (e.g., "Instantaneous", "Concentration, up to 1 minute").
 8. concentration: Boolean, true if duration requires concentration.
 9. ritual: Boolean, true if the spell has the ritual tag.

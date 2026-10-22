@@ -25,6 +25,7 @@ export class OllamaProvider implements NormalizerProvider {
   }
 
   async normalize(text: string, schema: any, options: NormalizeOptions): Promise<string> {
+    const timeoutMs = options?.providerTimeoutMs || 12000;
     try {
       const prompt = this.buildPrompt(text, schema, options);
 
@@ -38,7 +39,8 @@ export class OllamaProvider implements NormalizerProvider {
         },
         {
           headers: { 'Content-Type': 'application/json' },
-          timeout: 45000
+          timeout: timeoutMs,
+          signal: AbortSignal.timeout(timeoutMs)
         }
       );
 
@@ -50,7 +52,9 @@ export class OllamaProvider implements NormalizerProvider {
     } catch (error: any) {
       this.available = false;
       throw new NormalizerError(
-        error.message || 'Ollama connection failed',
+        error.name === 'AbortError' || /timeout/i.test(error.message)
+          ? `Ollama request timed out after ${timeoutMs}ms`
+          : (error.message || 'Ollama connection failed'),
         ErrorType.NETWORK_ERROR,
         this.name
       );

@@ -23,7 +23,9 @@ export class ObjectFormatter {
       'swim',
       'climb',
       'cost',
-      'level'
+      'level',
+      'basespeed',
+      'speed'
     ];
     if (intKeys.includes(key.toLowerCase())) return true;
     if (key.toLowerCase() === 'challengerating' && Number.isInteger(Number(value))) {

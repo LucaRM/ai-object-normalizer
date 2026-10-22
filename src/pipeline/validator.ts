@@ -95,24 +95,50 @@ export class PropertyValidator {
 
     // Route to appropriate model validator
     const tmpl = (options.template || '').toLowerCase().trim();
-    if (tmpl === 'monster' || (targetSchema && (targetSchema.armorClass !== undefined || targetSchema.challengeRating !== undefined))) {
+    if (tmpl === 'monster') {
       this.validateMonsterProperties(data, targetSchema, options, coercedFields, warnings, errors, () => checksRun++);
-    } else if (tmpl === 'spell' || (targetSchema && targetSchema.castingAction !== undefined)) {
+    } else if (tmpl === 'spell') {
       this.validateSpellProperties(data, targetSchema, options, coercedFields, warnings, errors, () => checksRun++);
-    } else if (tmpl === 'magical-item' || tmpl === 'magicalitem' || (targetSchema && targetSchema.entityType !== undefined)) {
+    } else if (tmpl === 'magical-item' || tmpl === 'magicalitem' || tmpl === 'magicitem' || tmpl === 'magic-item') {
       this.validateMagicalItemProperties(data, targetSchema, options, coercedFields, warnings, errors, () => checksRun++);
-    } else if (tmpl === 'species' || tmpl === 'race' || (targetSchema && targetSchema.baseSpeed !== undefined && targetSchema.baseLanguages !== undefined)) {
+    } else if (tmpl === 'species' || tmpl === 'race') {
       this.validateSpeciesProperties(data, targetSchema, options, coercedFields, warnings, errors, () => checksRun++);
-    } else if (tmpl === 'class' || (targetSchema && targetSchema.levelProgression !== undefined)) {
+    } else if (tmpl === 'class') {
       this.validateClassProperties(data, targetSchema, options, coercedFields, warnings, errors, () => checksRun++);
-    } else if (tmpl === 'subclass' || (targetSchema && targetSchema.className !== undefined && targetSchema.classId !== undefined)) {
+    } else if (tmpl === 'subclass') {
       this.validateSubclassProperties(data, targetSchema, options, coercedFields, warnings, errors, () => checksRun++);
-    } else if (tmpl === 'feat' || (targetSchema && targetSchema.featType !== undefined)) {
+    } else if (tmpl === 'feat') {
       this.validateFeatProperties(data, targetSchema, options, coercedFields, warnings, errors, () => checksRun++);
-    } else if (tmpl === 'background' || (targetSchema && targetSchema.feat !== undefined && targetSchema.skillProficiency !== undefined)) {
+    } else if (tmpl === 'background') {
       this.validateBackgroundProperties(data, targetSchema, options, coercedFields, warnings, errors, () => checksRun++);
-    } else if (tmpl === 'weapon' || (targetSchema && targetSchema.masteries !== undefined && targetSchema.damageType !== undefined)) {
+    } else if (tmpl === 'weapon') {
       this.validateWeaponProperties(data, targetSchema, options, coercedFields, warnings, errors, () => checksRun++);
+    } else if (tmpl === 'armor' || tmpl === 'armour' || tmpl === 'shield') {
+      this.validateArmorProperties(data, targetSchema, options, coercedFields, warnings, errors, () => checksRun++);
+    } else if (tmpl === 'item' || tmpl === 'equipment' || tmpl === 'gear') {
+      this.validateItemProperties(data, targetSchema, options, coercedFields, warnings, errors, () => checksRun++);
+    } else if (targetSchema && (targetSchema.challengeRating !== undefined || (targetSchema.armorClass !== undefined && targetSchema.hitPoints !== undefined))) {
+      this.validateMonsterProperties(data, targetSchema, options, coercedFields, warnings, errors, () => checksRun++);
+    } else if (targetSchema && targetSchema.castingAction !== undefined) {
+      this.validateSpellProperties(data, targetSchema, options, coercedFields, warnings, errors, () => checksRun++);
+    } else if (targetSchema && (targetSchema.rarity !== undefined || targetSchema.maxCharges !== undefined || (targetSchema.entityType !== undefined && targetSchema.type === 'magic-item'))) {
+      this.validateMagicalItemProperties(data, targetSchema, options, coercedFields, warnings, errors, () => checksRun++);
+    } else if (targetSchema && targetSchema.armorType !== undefined) {
+      this.validateArmorProperties(data, targetSchema, options, coercedFields, warnings, errors, () => checksRun++);
+    } else if (targetSchema && targetSchema.masteries !== undefined && targetSchema.damageType !== undefined) {
+      this.validateWeaponProperties(data, targetSchema, options, coercedFields, warnings, errors, () => checksRun++);
+    } else if (targetSchema && targetSchema.baseSpeed !== undefined && targetSchema.baseLanguages !== undefined) {
+      this.validateSpeciesProperties(data, targetSchema, options, coercedFields, warnings, errors, () => checksRun++);
+    } else if (targetSchema && targetSchema.levelProgression !== undefined) {
+      this.validateClassProperties(data, targetSchema, options, coercedFields, warnings, errors, () => checksRun++);
+    } else if (targetSchema && targetSchema.className !== undefined && targetSchema.classId !== undefined) {
+      this.validateSubclassProperties(data, targetSchema, options, coercedFields, warnings, errors, () => checksRun++);
+    } else if (targetSchema && targetSchema.featType !== undefined) {
+      this.validateFeatProperties(data, targetSchema, options, coercedFields, warnings, errors, () => checksRun++);
+    } else if (targetSchema && targetSchema.feat !== undefined && targetSchema.skillProficiency !== undefined) {
+      this.validateBackgroundProperties(data, targetSchema, options, coercedFields, warnings, errors, () => checksRun++);
+    } else if (targetSchema && targetSchema.type === 'equipment') {
+      this.validateItemProperties(data, targetSchema, options, coercedFields, warnings, errors, () => checksRun++);
     } else if (targetSchema && typeof targetSchema === 'object') {
       this.validateGenericProperties(data, targetSchema, coercedFields, warnings, errors, () => checksRun++);
     }
@@ -599,11 +625,20 @@ export class PropertyValidator {
     if (!data.name || typeof data.name !== 'string') errors.push('Spell "name" is required');
 
     tickCheck();
-    if (data.level !== undefined) {
-      const lvlStr = String(data.level).trim();
-      data.level = lvlStr;
+    if (data.level !== undefined && data.level !== null) {
+      if (typeof data.level === 'number') {
+        data.level = Math.floor(data.level);
+      } else {
+        const lvlStr = String(data.level).trim().toLowerCase();
+        if (/cantrip|truque/i.test(lvlStr) || lvlStr === '0') {
+          data.level = 0;
+        } else {
+          const match = lvlStr.match(/\d+/);
+          data.level = match ? parseInt(match[0], 10) : 0;
+        }
+      }
     } else {
-      data.level = '0';
+      data.level = 0;
     }
 
     tickCheck();
@@ -618,7 +653,7 @@ export class PropertyValidator {
     data.castingTime = data.castingTime || data.castingAction;
     data.range = data.range || 'Self';
     data.duration = data.duration || 'Instantaneous';
-    data.components = data.components || 'V, S';
+    data.components = this.parseSpellComponents(data.components);
     data.ritual = Boolean(data.ritual);
     data.concentration = Boolean(data.concentration);
     data.classes = Array.isArray(data.classes) ? data.classes : [];
@@ -626,6 +661,63 @@ export class PropertyValidator {
 
     this.ensureBooksArray(data, options, coercedFields, tickCheck);
     this.ensureEmbeddedTranslation(data, options, ['name', 'description', 'atHigherLevels'], tickCheck);
+  }
+
+  /**
+   * Parses and structures spell components into { verbal, somatic, material, materialsDescription? }
+   */
+  private static parseSpellComponents(components: any): {
+    verbal: boolean;
+    somatic: boolean;
+    material: boolean;
+    materialsDescription?: string;
+  } {
+    if (components && typeof components === 'object' && !Array.isArray(components)) {
+      const verbal = Boolean(components.verbal);
+      const somatic = Boolean(components.somatic);
+      const material = Boolean(components.material);
+      const desc = typeof components.materialsDescription === 'string'
+        ? components.materialsDescription.trim()
+        : (typeof components.description === 'string' ? components.description.trim() : undefined);
+
+      return {
+        verbal,
+        somatic,
+        material,
+        ...(desc ? { materialsDescription: desc } : {})
+      };
+    }
+
+    const compStr = Array.isArray(components) ? components.join(', ') : (typeof components === 'string' ? components : '');
+    const verbal = /\bV\b/i.test(compStr) || /\bverbal\b/i.test(compStr);
+    const somatic = /\bS\b/i.test(compStr) || /\bsomatic\b/i.test(compStr);
+    const material = /\bM\b/i.test(compStr) || /\bmaterial\b/i.test(compStr);
+
+    let materialsDescription: string | undefined = undefined;
+    const parenMatch = compStr.match(/\(([^)]+)\)/);
+    if (parenMatch) {
+      materialsDescription = parenMatch[1].trim();
+    } else if (material) {
+      const afterMMatch = compStr.match(/\bM\s*[:\-–]\s*([^,;]+)/i);
+      if (afterMMatch) {
+        materialsDescription = afterMMatch[1].trim();
+      }
+    }
+
+    if (!compStr) {
+      return {
+        verbal: true,
+        somatic: true,
+        material: false
+      };
+    }
+
+    return {
+      verbal,
+      somatic,
+      material,
+      ...(materialsDescription ? { materialsDescription } : {})
+    };
   }
 
   /**
@@ -667,8 +759,162 @@ export class PropertyValidator {
     tickCheck();
     data.type = 'magic-item';
     data.requiresAttunement = Boolean(data.requiresAttunement);
-    data.features = Array.isArray(data.features) ? data.features : [];
     data.system = data.system || 'dnd5e';
+
+    // 1. Attack & Damage Bonuses (Weapons)
+    if (data.magicBonusToHit !== undefined && data.magicBonusToHit !== null) {
+      const b = parseInt(String(data.magicBonusToHit), 10);
+      data.magicBonusToHit = isNaN(b) ? 0 : b;
+    } else if (data.entityType === 'weapon') {
+      data.magicBonusToHit = 0;
+    }
+
+    if (data.magicBonusToDamage !== undefined && data.magicBonusToDamage !== null) {
+      const b = parseInt(String(data.magicBonusToDamage), 10);
+      data.magicBonusToDamage = isNaN(b) ? 0 : b;
+    } else if (data.entityType === 'weapon') {
+      data.magicBonusToDamage = 0;
+    }
+
+    if ((!data.magicBonusToHit || data.magicBonusToHit === 0) || (!data.magicBonusToDamage || data.magicBonusToDamage === 0)) {
+      const fullText = `${data.name || ''} ${data.description || ''} ${JSON.stringify(data.features || [])}`;
+      const bonusMatch =
+        fullText.match(/\+(\d+)\s+bonus\s+to\s+attack\s+rolls\s+and\s+damage\s+rolls/i) ||
+        fullText.match(/(?:gain\s+a\s+|have\s+a\s+|\+)(\d+)\s+bonus\s+to\s+attack(?:\s+rolls)?\s+and\s+damage\s+rolls/i) ||
+        fullText.match(/\+(\d+)\s+bonus\s+to\s+attack(?:\s+rolls)?\s+and\s+damage\s+rolls/i) ||
+        fullText.match(/,\s*\+(\d+)\b/i) ||
+        fullText.match(/\+(\d+)\s+weapon\b/i) ||
+        (data.name ? data.name.match(/\+(\d+)\b/) : null);
+      if (bonusMatch) {
+        const bonus = parseInt(bonusMatch[1], 10);
+        if (!data.magicBonusToHit || data.magicBonusToHit === 0) data.magicBonusToHit = bonus;
+        if (!data.magicBonusToDamage || data.magicBonusToDamage === 0) data.magicBonusToDamage = bonus;
+      }
+    }
+
+    if (data.extraDamage !== undefined && data.extraDamage !== null) {
+      data.extraDamage = String(data.extraDamage).trim() || null;
+    } else {
+      data.extraDamage = null;
+    }
+
+    if (data.extraDamageType !== undefined && data.extraDamageType !== null) {
+      data.extraDamageType = String(data.extraDamageType).toLowerCase().trim() || null;
+    } else {
+      data.extraDamageType = null;
+    }
+
+    // 2. Armor & Protection Bonuses (Armor, Shields, Rings, Cloaks)
+    if (data.armorClassBonus !== undefined && data.armorClassBonus !== null) {
+      const b = parseInt(String(data.armorClassBonus), 10);
+      data.armorClassBonus = isNaN(b) ? 0 : b;
+    } else {
+      data.armorClassBonus = 0;
+    }
+
+    if (data.savingThrowBonus !== undefined && data.savingThrowBonus !== null) {
+      const b = parseInt(String(data.savingThrowBonus), 10);
+      data.savingThrowBonus = isNaN(b) ? 0 : b;
+    } else {
+      data.savingThrowBonus = 0;
+    }
+
+    // 3. Spells
+    if (data.spells !== undefined && Array.isArray(data.spells)) {
+      data.spells = data.spells.map((s: any) => String(s).trim()).filter(Boolean);
+    } else {
+      data.spells = [];
+    }
+
+    // Auto-infer spells if empty
+    if (data.spells.length === 0) {
+      const fullText = `${data.name || ''} ${data.description || ''} ${JSON.stringify(data.features || [])}`;
+      const wandSpellMatch = fullText.match(/\b(?:Wand|Scroll|Staff|Ring)\s+of\s+([A-Z][a-zA-Z\s]+?)(?:\s*\(|,|\.|$)/i) ||
+        fullText.match(/\bcast\s+(?:the\s+)?([A-Z][a-zA-Z\s]+?)\s+spell\b/i) ||
+        fullText.match(/\bcharges\s+to\s+cast\s+(?:the\s+)?([A-Z][a-zA-Z\s]+?)(?:\s+from|\s+spell|\.|\()/i);
+      if (wandSpellMatch) {
+        const inferred = wandSpellMatch[1].trim();
+        if (!/^(?:Magic|Power|Holding|Healing)$/i.test(inferred) || /Magic\s+Missile/i.test(inferred)) {
+          data.spells = [inferred];
+        }
+      }
+    }
+
+    // Auto-infer chargeResetOn & chargeRegeneration if missing/Never
+    const fullDesc = `${data.description || ''} ${JSON.stringify(data.features || [])}`;
+    if (!data.chargeResetOn || data.chargeResetOn === 'Never') {
+      if (/\bdawn\b/i.test(fullDesc)) data.chargeResetOn = 'Dawn';
+      else if (/\bdusk\b/i.test(fullDesc)) data.chargeResetOn = 'Dusk';
+      else if (/\blong\s+rest\b/i.test(fullDesc)) data.chargeResetOn = 'Long Rest';
+      else if (/\bshort\s+rest\b/i.test(fullDesc)) data.chargeResetOn = 'Short Rest';
+    }
+    if (!data.chargeRegeneration) {
+      const regenMatch = fullDesc.match(/(?:regains?|regaining)\s+([^\n.]+?(?:dawn|dusk|long\s+rest|short\s+rest))/i) ||
+        fullDesc.match(/([0-9d+\-\s]+expended charges\s+daily\s+at\s+dawn)/i);
+      if (regenMatch) {
+        data.chargeRegeneration = regenMatch[1].trim();
+      }
+    }
+
+    // 4. Features & Action Classification
+    data.features = Array.isArray(data.features) ? data.features : [];
+    const validActionTypes = ['action', 'bonus action', 'reaction', 'special', 'passive'];
+    const validAbilities = ['strength', 'dexterity', 'constitution', 'intelligence', 'wisdom', 'charisma'];
+
+    data.features = data.features.map((f: any) => {
+      if (!f || typeof f !== 'object') return f;
+
+      let actionType = f.actionType;
+      if (actionType && typeof actionType === 'string') {
+        const aLower = actionType.toLowerCase().trim();
+        actionType = validActionTypes.includes(aLower) ? aLower : 'passive';
+      } else if (!actionType) {
+        const fullDesc = `${f.name || ''} ${f.description || ''}`.toLowerCase();
+        if (/\b(?:bonus\s+action)\b/i.test(fullDesc)) {
+          actionType = 'bonus action';
+        } else if (/\b(?:reaction)\b/i.test(fullDesc)) {
+          actionType = 'reaction';
+        } else if (/\b(?:magic\s+action|as\s+an\s+action|use\s+an\s+action|take\s+an\s+action)\b/i.test(fullDesc)) {
+          actionType = 'action';
+        } else {
+          actionType = 'passive';
+        }
+      } else {
+        actionType = 'passive';
+      }
+
+      let saveDC = f.saveDC;
+      if (saveDC !== undefined && saveDC !== null) {
+        const parsed = parseInt(String(saveDC), 10);
+        saveDC = isNaN(parsed) ? null : parsed;
+      } else {
+        const fullDesc = `${f.name || ''} ${f.description || ''}`;
+        const dcMatch = fullDesc.match(/\bDC\s*(\d+)\b/i);
+        saveDC = dcMatch ? parseInt(dcMatch[1], 10) : null;
+      }
+
+      let saveAbility = f.saveAbility;
+      if (saveAbility && typeof saveAbility === 'string') {
+        const abLower = saveAbility.toLowerCase().trim();
+        saveAbility = validAbilities.find(a => a.startsWith(abLower.slice(0, 3))) || null;
+      } else {
+        const fullDesc = `${f.name || ''} ${f.description || ''}`;
+        const abMatch = fullDesc.match(/\b(?:DC\s*\d+\s+)?(Strength|Dexterity|Constitution|Intelligence|Wisdom|Charisma|Str|Dex|Con|Int|Wis|Cha)\s+(?:saving\s+throw|save)\b/i);
+        if (abMatch) {
+          const abLower = abMatch[1].toLowerCase();
+          saveAbility = validAbilities.find(a => a.startsWith(abLower.slice(0, 3))) || null;
+        } else {
+          saveAbility = null;
+        }
+      }
+
+      return {
+        ...f,
+        actionType: actionType || 'passive',
+        saveDC: saveDC !== null ? saveDC : null,
+        saveAbility: saveAbility || null
+      };
+    });
 
     if (data.maxCharges !== undefined) {
       const chg = parseInt(String(data.maxCharges), 10);
@@ -699,28 +945,336 @@ export class PropertyValidator {
     data.size = data.size || 'Medium';
 
     tickCheck();
-    if (data.baseSpeed !== undefined) {
-      const spdInt = parseInt(String(data.baseSpeed), 10);
-      if (!isNaN(spdInt)) {
-        data.baseSpeed = spdInt;
-      }
+    if (data.baseSpeed !== undefined && data.baseSpeed !== null) {
+      const spdInt = parseInt(String(data.baseSpeed).replace(/\D+/g, ''), 10);
+      data.baseSpeed = !isNaN(spdInt) ? spdInt : 30;
     } else {
       data.baseSpeed = 30;
     }
-    data.speed = data.speed || `${data.baseSpeed} ft.`;
+
+    if (data.speed !== undefined && data.speed !== null) {
+      const spdNum = typeof data.speed === 'number' ? Math.floor(data.speed) : parseInt(String(data.speed).replace(/\D+/g, ''), 10);
+      data.speed = !isNaN(spdNum) ? spdNum : data.baseSpeed;
+    } else {
+      data.speed = data.baseSpeed;
+    }
 
     tickCheck();
     data.baseLanguages = Array.isArray(data.baseLanguages) ? data.baseLanguages : ['Common'];
     data.features = Array.isArray(data.features) ? data.features : [];
     data.system = data.system || 'dnd5e';
 
+    // Enrich and automate each species feature for character sheet usage
+    data.features = data.features.map((f: any) => PropertyValidator.enrichSpeciesFeature(f, coercedFields));
+
     this.ensureBooksArray(data, options, coercedFields, tickCheck);
     this.ensureEmbeddedTranslation(data, options, ['name', 'description', 'features'], tickCheck);
   }
 
   /**
-   * Class property validation
+   * Enrich species feature with structured automation fields for character sheet usage
    */
+  public static enrichSpeciesFeature(feature: any, coercedFields?: CoercedField[]): any {
+    if (!feature || typeof feature !== 'object') return feature;
+
+    const f = { ...feature };
+    const rawName = String(f.name || '').trim();
+    const rawDesc = String(f.description || '').trim();
+    const text = `${rawName} ${rawDesc}`;
+
+    // 1. Ensure id
+    if (!f.id || typeof f.id !== 'string') {
+      f.id = (rawName || 'trait')
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-|-$/g, '');
+    }
+
+    // 2. Ensure descriptionSmall
+    if (!f.descriptionSmall && f.description) {
+      const firstSentence = f.description.split(/(?<=[.!?])\s+/)[0];
+      f.descriptionSmall = firstSentence && firstSentence.length > 5 ? firstSentence : f.description.slice(0, 120);
+    }
+
+    // 3. Action Economy (actionType)
+    let actionType = f.actionType;
+    if (actionType && typeof actionType === 'string') {
+      const aLower = actionType.toLowerCase().trim();
+      if (['action', 'bonus action', 'reaction', 'passive'].includes(aLower)) {
+        actionType = aLower;
+      } else {
+        actionType = null;
+      }
+    } else {
+      actionType = null;
+    }
+
+    if (!actionType) {
+      if (/\b(?:bonus\s+action|as\s+a\s+bonus\s+action|use\s+a\s+bonus\s+action|a\s+bonus\s+action\s+to|action\s+as\s+a\s+bonus\s+action)\b/i.test(text)) {
+        actionType = 'bonus action';
+      } else if (/\b(?:as\s+a\s+reaction|use\s+your\s+reaction)\b/i.test(text)) {
+        actionType = 'reaction';
+      } else if (/\b(?:as\s+an\s+action|use\s+an\s+action|take\s+an\s+action|as\s+a\s+magic\s+action|action\s+to\s+exhale)\b/i.test(text)) {
+        actionType = 'action';
+      }
+    }
+    if (actionType) {
+      f.actionType = actionType;
+    }
+
+    // 4. Senses & mechanics.senses
+    if (/\bdarkvision\b/i.test(text)) {
+      const dvMatch =
+        text.match(/\b(?:within|range\s+of|out\s+to|up\s+to)\s+(\d+)\s+feet/i) ||
+        text.match(/(\d+)\s+feet\s+(?:of\s+)?darkvision/i) ||
+        text.match(/darkvision\s*[:\.]?\s*(\d+)\s*ft/i);
+      const dvDist = dvMatch ? parseInt(dvMatch[1], 10) : 60;
+      f.senses = { ...(f.senses || {}), darkvision: dvDist };
+      f.mechanics = { ...(f.mechanics || {}), senses: { ...(f.mechanics?.senses || {}), darkvision: dvDist } };
+      f.category = 'Senses';
+    }
+
+    if (/\btremorsense\b/i.test(text)) {
+      const tsMatch = text.match(/tremorsense\s+(?:with\s+a\s+range\s+of|within|outs+to|of)?\s*(\d+)\s+feet/i);
+      const tsDist = tsMatch ? parseInt(tsMatch[1], 10) : 60;
+      f.senses = { ...(f.senses || {}), tremorsense: tsDist };
+      f.mechanics = { ...(f.mechanics || {}), senses: { ...(f.mechanics?.senses || {}), tremorsense: tsDist } };
+    }
+
+    if (/\bblindsight\b/i.test(text)) {
+      const bsMatch = text.match(/blindsight\s+(?:with\s+a\s+range\s+of|within|outs+to|of)?\s*(\d+)\s+feet/i);
+      const bsDist = bsMatch ? parseInt(bsMatch[1], 10) : 30;
+      f.senses = { ...(f.senses || {}), blindsight: bsDist };
+      f.mechanics = { ...(f.mechanics || {}), senses: { ...(f.mechanics?.senses || {}), blindsight: bsDist } };
+    }
+
+    // 5. Resistances & Immunities
+    const damageTypes = [
+      'Poison', 'Fire', 'Cold', 'Acid', 'Lightning',
+      'Necrotic', 'Radiant', 'Thunder', 'Force', 'Psychic'
+    ];
+    for (const dmg of damageTypes) {
+      if (
+        new RegExp(`resistance\\s+to\\s+(?:[A-Za-z]+,\\s*)*${dmg}`, 'i').test(text) ||
+        new RegExp(`have\\s+${dmg}\\s+resistance`, 'i').test(text)
+      ) {
+        const resList = Array.from(new Set([...(f.resistances || []), dmg]));
+        f.resistances = resList;
+        f.mechanics = {
+          ...(f.mechanics || {}),
+          resistances: { ...(f.mechanics?.resistances || {}), damageTypes: resList }
+        };
+        f.category = 'Defense';
+      }
+      if (new RegExp(`immun(?:e|ity)\\s+to\\s+(?:[A-Za-z]+,\\s*)*${dmg}`, 'i').test(text)) {
+        const immList = Array.from(new Set([...(f.immunities || []), dmg]));
+        f.immunities = immList;
+        f.mechanics = {
+          ...(f.mechanics || {}),
+          immunities: { ...(f.mechanics?.immunities || {}), damageTypes: immList }
+        };
+        f.category = 'Defense';
+      }
+    }
+
+    // 6. Saving throw advantages (e.g. Fey Ancestry -> Charmed, Dwarven Resilience -> Poison, Brave -> Frightened)
+    const advSaves: string[] = [];
+    if (/advantage\s+on\s+saving\s+throws\s+(?:you\s+make\s+)?to\s+avoid\s+or\s+end\s+the\s+Charmed\s+condition/i.test(text) ||
+        /advantage\s+on\s+saving\s+throws\s+against\s+being\s+charmed/i.test(text)) {
+      advSaves.push('Charmed');
+    }
+    if (/advantage\s+on\s+saving\s+throws\s+against\s+poison/i.test(text) ||
+        /advantage\s+on\s+saving\s+throws\s+(?:you\s+make\s+)?to\s+avoid\s+or\s+end\s+the\s+Poisoned\s+condition/i.test(text)) {
+      advSaves.push('Poison');
+    }
+    if (/advantage\s+on\s+saving\s+throws\s+(?:you\s+make\s+)?to\s+avoid\s+or\s+end\s+the\s+Frightened\s+condition/i.test(text) ||
+        /advantage\s+on\s+saving\s+throws\s+against\s+being\s+frightened/i.test(text)) {
+      advSaves.push('Frightened');
+    }
+    if (/advantage\s+on\s+Intelligence,\s*Wisdom,\s*and\s+Charisma\s+saving\s+throws/i.test(text)) {
+      advSaves.push('Intelligence', 'Wisdom', 'Charisma');
+    }
+    if (advSaves.length > 0) {
+      f.mechanics = {
+        ...(f.mechanics || {}),
+        savingThrowAdvantage: Array.from(new Set([...(f.mechanics?.savingThrowAdvantage || []), ...advSaves]))
+      };
+      f.category = 'Defense';
+    }
+
+    // 7. Proficiencies (Skills & Tools)
+    const skillsList = [
+      'Acrobatics', 'Animal Handling', 'Arcana', 'Athletics', 'Deception',
+      'History', 'Insight', 'Intimidation', 'Investigation', 'Medicine',
+      'Nature', 'Perception', 'Performance', 'Persuasion', 'Religion',
+      'Sleight of Hand', 'Stealth', 'Survival'
+    ];
+    for (const sk of skillsList) {
+      if (
+        new RegExp(`proficiency\\s+in\\s+(?:the\\s+)?${sk}\\s+skill`, 'i').test(text) ||
+        new RegExp(`proficient\\s+in\\s+(?:the\\s+)?${sk}`, 'i').test(text)
+      ) {
+        const skList = Array.from(new Set([...(f.proficiencies?.skills || []), sk]));
+        f.proficiencies = { ...(f.proficiencies || {}), skills: skList };
+        f.mechanics = {
+          ...(f.mechanics || {}),
+          proficiencies: { ...(f.mechanics?.proficiencies || {}), skills: skList }
+        };
+        f.category = 'Skills';
+      }
+    }
+
+    const toolsList = [
+      "Smith's tools", "Brewer's supplies", "Mason's tools", "Artisan's tools",
+      "Thieves' tools", "Tinker's tools", "Herbalism kit", "Disguise kit",
+      "Poisoner's kit", "Musical instrument"
+    ];
+    for (const tl of toolsList) {
+      const safeRegex = tl.replace("'", "['’]?");
+      if (new RegExp(`proficiency\\s+with\\s+(?:the\\s+)?${safeRegex}`, 'i').test(text)) {
+        const tlList = Array.from(new Set([...(f.proficiencies?.tools || []), tl]));
+        f.proficiencies = { ...(f.proficiencies || {}), tools: tlList };
+        f.mechanics = {
+          ...(f.mechanics || {}),
+          proficiencies: { ...(f.mechanics?.proficiencies || {}), tools: tlList }
+        };
+      }
+    }
+
+    // 8. Skill Choice (globalSkillList)
+    const scMatch = text.match(/proficiency\s+in\s+(one|two|1|2)\s+skills?\s+of\s+your\s+choice/i);
+    if (scMatch) {
+      const count = /two|2/i.test(scMatch[1]) ? 2 : 1;
+      f.selectable = true;
+      f.requiresChoice = true;
+      f.choiceType = 'skill';
+      f.speciesWizardPick = 'globalSkillList';
+      f.choices = { type: 'Skill', count };
+      f.category = 'Skills';
+    }
+
+    // 9. Origin Feat Choice
+    if (/(?:gain|choose)\s+(?:one|1)?\s*Origin\s+feat\s+of\s+your\s+choice/i.test(text)) {
+      f.selectable = true;
+      f.requiresChoice = true;
+      f.choiceType = 'feat';
+      f.featFilter = { featType: 'Origin' };
+    }
+
+    // 10. Lineages / Subspecies choices
+    const lineageMatch =
+      text.match(/(?:Choose\s+(?:a|an|your)\s+(?:lineage|ancestry|dragon\s+ancestor|giant\s+ancestry|subrace|legacy|subspecies)|Lineage\s+Options|Subrace\s+Options)\s*[:\.]?\s*([^.\n]+)/i);
+    if (lineageMatch) {
+      const rawOptions = lineageMatch[1]
+        .replace(/,?\s+or\s+/i, ', ')
+        .split(',')
+        .map((s: string) => s.trim())
+        .filter(Boolean);
+      if (rawOptions.length >= 2) {
+        f.selectable = true;
+        f.requiresChoice = true;
+        f.speciesWizardPick = 'lineagePick';
+        f.options = rawOptions.map((opt: string) => ({
+          id: opt.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, ''),
+          name: opt,
+          description: ''
+        }));
+        f.choices = { type: 'Custom', count: 1, options: rawOptions };
+      }
+    }
+
+    // 11. Usage Limits & Resource Strip (maxUses, usesResetOn, sheetResourceStrip)
+    if (/(?:number\s+of\s+times\s+equal\s+to\s+your\s+Proficiency\s+Bonus|times\s+equal\s+to\s+your\s+PB)/i.test(text)) {
+      f.maxUses = { type: 'proficiencyBonus' };
+      f.sheetResourceStrip = { enabled: true };
+    }
+    if (
+      /regain\s+all\s+expended\s+uses\s+when\s+you\s+finish\s+a\s+Long\s+Rest/i.test(text) ||
+      /finish\s+a\s+Long\s+Rest\s+before\s+you\s+can\s+use\s+it\s+again/i.test(text) ||
+      /Once\s+per\s+Long\s+Rest/i.test(text)
+    ) {
+      f.usesResetOn = 'long rest';
+      if (!f.maxUses) f.maxUses = 1;
+      f.usageLimits = { type: 'Long Rest', amount: typeof f.maxUses === 'number' ? f.maxUses : 1 };
+      f.sheetResourceStrip = { enabled: true };
+    } else if (/regain\s+all\s+expended\s+uses\s+when\s+you\s+finish\s+a\s+Short\s+or\s+Long\s+Rest/i.test(text)) {
+      f.usesResetOn = 'short rest';
+      if (!f.maxUses) f.maxUses = 1;
+      f.usageLimits = { type: 'Short Rest', amount: typeof f.maxUses === 'number' ? f.maxUses : 1 };
+      f.sheetResourceStrip = { enabled: true };
+    }
+
+    // 12. Spells & Cantrips
+    const splChoiceMatch = text.match(/cantrip\s+of\s+your\s+choice\s+from\s+the\s+(Wizard|Druid|Cleric|Sorcerer|Bard)\s+spell\s+list/i);
+    if (splChoiceMatch) {
+      f.spellChoice = { count: 1, level: 0, spellList: splChoiceMatch[1] };
+      f.category = 'Spellcasting';
+    }
+    const knownCantrips = [
+      'Thaumaturgy', 'Light', 'Produce Flame', 'Druidcraft', 'Prestidigitation',
+      'Guidance', 'Sacred Flame', 'Minor Illusion', 'Message', 'Ray of Frost',
+      'Chill Touch', 'Shocking Grasp', 'Vicious Mockery', 'Blade Ward', 'Friends',
+      'Mending', 'Fire Bolt', 'Poison Spray', 'Dancing Lights', 'Spare the Dying',
+      'True Strike', 'Shillelagh', 'Resistance', 'Acid Splash'
+    ];
+    for (const cantrip of knownCantrips) {
+      const safeC = cantrip.replace("'", "['’]?");
+      if (
+        new RegExp(`(?:know|gain|learn)\\s+(?:the\\s+)?${safeC}\\s+cantrip`, 'i').test(text) ||
+        new RegExp(`the\\s+${safeC}\\s+cantrip\\s+is\\s+always\\s+prepared`, 'i').test(text)
+      ) {
+        f.atWillSpell = cantrip;
+        f.atWillRecharge = 'atWill';
+        f.category = 'Spellcasting';
+        break;
+      }
+    }
+
+    // 13. Natural Weapons / Unarmed Strike
+    if (/\b(?:claws?|talons?|horns?|hooves|bite)\b/i.test(text) && /\b(?:1d6|1d4)\b/i.test(text) && /\bunarmed\s+strikes?\b/i.test(text)) {
+      const dieMatch = text.match(/\b(1d[468])\b/i);
+      const die = dieMatch ? dieMatch[1].toLowerCase() : '1d6';
+      f.unarmedStrike = { die, useMaxStatModifier: true };
+      f.category = 'Combat';
+    }
+
+    // 14. Movement Speeds
+    if (/\bflying\s+speed\s+(?:equal\s+to\s+your\s+walking\s+speed|of\s*(\d+)\s*feet)/i.test(text)) {
+      const flyMatch = text.match(/flying\s+speed\s+of\s*(\d+)\s*feet/i);
+      const flySpeed = flyMatch ? parseInt(flyMatch[1], 10) : 30;
+      f.movement = { ...(f.movement || {}), fly: flySpeed };
+    }
+    if (/\bswimming\s+speed\s+(?:equal\s+to\s+your\s+walking\s+speed|of\s*(\d+)\s*feet)/i.test(text)) {
+      const swimMatch = text.match(/swimming\s+speed\s+of\s*(\d+)\s*feet/i);
+      const swimSpeed = swimMatch ? parseInt(swimMatch[1], 10) : 30;
+      f.movement = { ...(f.movement || {}), swim: swimSpeed };
+    }
+    if (/\bclimbing\s+speed\s+(?:equal\s+to\s+your\s+walking\s+speed|of\s*(\d+)\s*feet)/i.test(text)) {
+      const climbMatch = text.match(/climbing\s+speed\s+of\s*(\d+)\s*feet/i);
+      const climbSpeed = climbMatch ? parseInt(climbMatch[1], 10) : 30;
+      f.movement = { ...(f.movement || {}), climb: climbSpeed };
+    }
+
+    // 15. Category Fallback
+    if (!f.category || f.category === 'Racial Trait' || f.category === 'Passive' || f.category === 'Active') {
+      if (/\b(?:darkvision|blindsight|tremorsense|truesight|senses)\b/i.test(text)) {
+        f.category = 'Senses';
+      } else if (/\b(?:resilience|resistance|ancestry|toughness|armor|defense|ward|immunity|saving\s+throw)\b/i.test(text)) {
+        f.category = 'Defense';
+      } else if (/\b(?:perception|stealth|skill|versatility|skillful|keen\s+senses)\b/i.test(text)) {
+        f.category = 'Skills';
+      } else if (/\b(?:magic|cantrip|spell|casting|drow\s+magic)\b/i.test(text)) {
+        f.category = 'Spellcasting';
+      } else if (/\b(?:strike|attack|weapon|fury|breath\s+weapon)\b/i.test(text)) {
+        f.category = 'Combat';
+      } else {
+        f.category = f.category || 'Racial Trait';
+      }
+    }
+
+    return f;
+  }
+
   private static validateClassProperties(
     data: any,
     targetSchema: any,
@@ -735,14 +1289,114 @@ export class PropertyValidator {
 
     tickCheck();
     if (!data.traits || typeof data.traits !== 'object') data.traits = {};
-    if (data.traits.hitDie && !/^1d(6|8|10|12)$/i.test(data.traits.hitDie)) {
-      warnings.push(`Hit die "${data.traits.hitDie}" is non-standard for 5e`);
+
+    // 1. hitDie
+    if (data.hitDie && typeof data.hitDie === 'string' && data.hitDie !== '1d8') {
+      data.traits.hitDie = data.hitDie;
+    } else if (data.traits.hitDie && typeof data.traits.hitDie === 'string' && data.traits.hitDie !== '1d8') {
+      data.hitDie = data.traits.hitDie;
+    } else {
+      const fullText = `${data.description || ''} ${JSON.stringify(data.features || [])} ${data.startingEquipment || ''} ${JSON.stringify(data.traits || {})}`;
+      const hdMatch =
+        fullText.match(/Hit\s+Dice:\s*(\d*d\d+)/i) ||
+        fullText.match(/Hit\s+(?:Point\s+)?(?:Die|Dice)\s*:\s*(\d*d\d+)/i) ||
+        fullText.match(/(?:Hit Point Die|Hit Point Dice|Hit Die|Hit Dice)\s*:\s*(?:1?d\d+|d\d+)/i);
+      if (hdMatch) {
+        const raw = hdMatch[1] || hdMatch[0];
+        const matchHd = raw.match(/1?d(4|6|8|10|12)/i);
+        const resolved = matchHd ? (matchHd[0].startsWith('1') ? matchHd[0] : `1${matchHd[0]}`) : '1d8';
+        data.hitDie = resolved;
+        data.traits.hitDie = resolved;
+      } else {
+        data.hitDie = data.hitDie || data.traits.hitDie || '1d8';
+        data.traits.hitDie = data.hitDie;
+      }
     }
 
-    data.traits.primaryAbility = Array.isArray(data.traits.primaryAbility) ? data.traits.primaryAbility : ['Strength'];
-    data.traits.savingThrowProficiencies = Array.isArray(data.traits.savingThrowProficiencies) ? data.traits.savingThrowProficiencies : [];
-    data.traits.armorProficiencies = Array.isArray(data.traits.armorProficiencies) ? data.traits.armorProficiencies : [];
-    data.traits.weaponProficiencies = Array.isArray(data.traits.weaponProficiencies) ? data.traits.weaponProficiencies : [];
+    // 2. primaryAbility
+    if (data.primaryAbility) {
+      if (Array.isArray(data.primaryAbility)) {
+        data.traits.primaryAbility = data.primaryAbility;
+        data.primaryAbility = data.primaryAbility[0] || 'Strength';
+      } else {
+        data.traits.primaryAbility = [String(data.primaryAbility)];
+        data.primaryAbility = String(data.primaryAbility);
+      }
+    } else if (Array.isArray(data.traits.primaryAbility) && data.traits.primaryAbility.length > 0) {
+      data.primaryAbility = data.traits.primaryAbility[0];
+    } else {
+      data.primaryAbility = 'Strength';
+      data.traits.primaryAbility = ['Strength'];
+    }
+
+    // 3. savingThrowProficiency
+    if (Array.isArray(data.savingThrowProficiency)) {
+      data.traits.savingThrowProficiencies = data.savingThrowProficiency;
+    } else if (Array.isArray(data.traits.savingThrowProficiencies)) {
+      data.savingThrowProficiency = data.traits.savingThrowProficiencies;
+    } else {
+      data.savingThrowProficiency = [];
+      data.traits.savingThrowProficiencies = [];
+    }
+
+    // 4. armorProficiency
+    if (Array.isArray(data.armorProficiency)) {
+      data.traits.armorProficiencies = data.armorProficiency;
+    } else if (Array.isArray(data.traits.armorProficiencies)) {
+      data.armorProficiency = data.traits.armorProficiencies;
+    } else {
+      data.armorProficiency = [];
+      data.traits.armorProficiencies = [];
+    }
+
+    // 5. weaponProficiency
+    if (Array.isArray(data.weaponProficiency)) {
+      data.traits.weaponProficiencies = data.weaponProficiency;
+    } else if (Array.isArray(data.traits.weaponProficiencies)) {
+      data.weaponProficiency = data.traits.weaponProficiencies;
+    } else {
+      data.weaponProficiency = [];
+      data.traits.weaponProficiencies = [];
+    }
+
+    // 6. toolProficiency
+    if (Array.isArray(data.toolProficiency)) {
+      data.traits.toolProficiencies = data.toolProficiency;
+    } else if (Array.isArray(data.traits.toolProficiencies)) {
+      data.toolProficiency = data.traits.toolProficiencies;
+    } else {
+      data.toolProficiency = [];
+      data.traits.toolProficiencies = [];
+    }
+
+    // 7. skillProficiency
+    if (Array.isArray(data.skillProficiency)) {
+      data.traits.skillProficiencies = { choose: 2, from: data.skillProficiency };
+    } else if (data.traits.skillProficiencies && Array.isArray(data.traits.skillProficiencies.from)) {
+      data.skillProficiency = data.traits.skillProficiencies.from;
+    } else if (!Array.isArray(data.skillProficiency)) {
+      data.skillProficiency = [];
+    }
+
+    // 8. features: extract from levelProgression if missing
+    if (!Array.isArray(data.features) || data.features.length === 0) {
+      if (Array.isArray(data.levelProgression)) {
+        const flattened: any[] = [];
+        for (const lp of data.levelProgression) {
+          if (Array.isArray(lp.features)) {
+            for (const feat of lp.features) {
+              flattened.push({
+                ...feat,
+                classLevel: feat.classLevel || lp.level || 1
+              });
+            }
+          }
+        }
+        data.features = flattened;
+      } else {
+        data.features = [];
+      }
+    }
 
     tickCheck();
     if (!data.spellcasting || typeof data.spellcasting !== 'object') {
@@ -784,8 +1438,171 @@ export class PropertyValidator {
     }
 
     tickCheck();
-    data.features = Array.isArray(data.features) ? data.features : [];
     data.system = data.system || 'dnd5e';
+
+    // 1. Subclass Proficiencies (traits)
+    if (!data.traits || typeof data.traits !== 'object') {
+      data.traits = {};
+    }
+    data.traits.armorProficiencies = Array.isArray(data.traits.armorProficiencies)
+      ? data.traits.armorProficiencies
+      : [];
+    data.traits.weaponProficiencies = Array.isArray(data.traits.weaponProficiencies)
+      ? data.traits.weaponProficiencies
+      : [];
+    data.traits.toolProficiencies = Array.isArray(data.traits.toolProficiencies)
+      ? data.traits.toolProficiencies
+      : [];
+    data.traits.savingThrowProficiencies = Array.isArray(data.traits.savingThrowProficiencies)
+      ? data.traits.savingThrowProficiencies
+      : [];
+
+    const fullText = `${data.name || ''} ${data.description || ''} ${JSON.stringify(data.features || [])}`;
+
+    const addUnique = (arr: string[], item: string) => {
+      if (!arr.some(x => x.toLowerCase() === item.toLowerCase())) {
+        arr.push(item);
+      }
+    };
+
+    if (/\bheavy\s+armor\b/i.test(fullText) && /\b(?:proficiency|proficient|training)\b/i.test(fullText)) {
+      addUnique(data.traits.armorProficiencies, 'Heavy armor');
+    }
+    if (/\bmedium\s+armor\b/i.test(fullText) && /\b(?:proficiency|proficient|training)\b/i.test(fullText)) {
+      addUnique(data.traits.armorProficiencies, 'Medium armor');
+    }
+    if (/\blight\s+armor\b/i.test(fullText) && /\b(?:proficiency|proficient|training)\b/i.test(fullText)) {
+      addUnique(data.traits.armorProficiencies, 'Light armor');
+    }
+    if (/\bshields?\b/i.test(fullText) && /\b(?:proficiency|proficient|training)\b/i.test(fullText)) {
+      addUnique(data.traits.armorProficiencies, 'Shields');
+    }
+
+    if (/\bmartial\s+weapons?\b/i.test(fullText) && /\b(?:proficiency|proficient|training)\b/i.test(fullText)) {
+      addUnique(data.traits.weaponProficiencies, 'Martial weapons');
+    }
+    if (/\bsimple\s+weapons?\b/i.test(fullText) && /\b(?:proficiency|proficient|training)\b/i.test(fullText)) {
+      addUnique(data.traits.weaponProficiencies, 'Simple weapons');
+    }
+
+    if (/\bartisan['’]s\s+tools?\b/i.test(fullText)) {
+      addUnique(data.traits.toolProficiencies, "Artisan's tools");
+    }
+    if (/\bdisguise\s+kit\b/i.test(fullText)) {
+      addUnique(data.traits.toolProficiencies, 'Disguise kit');
+    }
+    if (/\bpoisoner['’]s\s+kit\b/i.test(fullText)) {
+      addUnique(data.traits.toolProficiencies, "Poisoner's kit");
+    }
+    if (/\bthieves['’]\s+tools\b/i.test(fullText)) {
+      addUnique(data.traits.toolProficiencies, "Thieves' tools");
+    }
+    if (/\bmusical\s+instruments?\b/i.test(fullText)) {
+      addUnique(data.traits.toolProficiencies, 'Musical instrument');
+    }
+    if (/\bherbalism\s+kit\b/i.test(fullText)) {
+      addUnique(data.traits.toolProficiencies, 'Herbalism kit');
+    }
+
+    const stMatch = fullText.match(/proficiency\s+in\s+(Strength|Dexterity|Constitution|Intelligence|Wisdom|Charisma)\s+saving\s+throws/i);
+    if (stMatch) {
+      addUnique(data.traits.savingThrowProficiencies, stMatch[1]);
+    }
+
+    // 2. Features Level Fallback (Kickoff Level 3) & Action Economy Classification
+    data.features = (Array.isArray(data.features) ? data.features : []).map((f: any) => {
+      if (!f || typeof f !== 'object') return f;
+
+      let lvl: number | null = null;
+      if (typeof f.level === 'number' && !isNaN(f.level) && f.level > 0) {
+        lvl = f.level;
+      } else if (typeof f.level === 'string') {
+        const p = parseInt(f.level, 10);
+        if (!isNaN(p) && p > 0) lvl = p;
+      }
+      if (!lvl) {
+        const text = `${f.name || ''} ${f.description || ''}`;
+        const lvlMatch =
+          text.match(/(?:At|Starting\s+at|by)\s+(\d+)(?:st|nd|rd|th)?\s+level/i) ||
+          text.match(/\b(\d+)(?:st|nd|rd|th)[- ]level\b/i);
+        if (lvlMatch) {
+          lvl = parseInt(lvlMatch[1], 10);
+        }
+      }
+
+      let actionType = f.actionType;
+      if (actionType && typeof actionType === 'string') {
+        const aLower = actionType.toLowerCase().trim();
+        if (['action', 'bonus action', 'reaction', 'passive'].includes(aLower)) {
+          actionType = aLower;
+        } else {
+          actionType = null;
+        }
+      } else {
+        actionType = null;
+      }
+
+      if (!actionType) {
+        const text = `${f.name || ''} ${f.description || ''}`.toLowerCase();
+        if (/\b(?:bonus\s+action|as\s+a\s+bonus\s+action|use\s+a\s+bonus\s+action|a\s+bonus\s+action\s+to)\b/i.test(text)) {
+          actionType = 'bonus action';
+        } else if (/\b(?:reaction|as\s+a\s+reaction|use\s+your\s+reaction)\b/i.test(text)) {
+          actionType = 'reaction';
+        } else if (/\b(?:as\s+an\s+action|use\s+an\s+action|take\s+an\s+action|as\s+a\s+magic\s+action|action\s+to)\b/i.test(text)) {
+          actionType = 'action';
+        } else {
+          actionType = 'passive';
+        }
+      }
+
+      return {
+        ...f,
+        level: lvl || 3,
+        actionType
+      };
+    });
+
+    // 3. Maneuver Subclasses (e.g. Battle Master)
+    const isManeuver =
+      /battle\s*master/i.test(data.name || '') ||
+      /\b(?:combat\s+superiority|superiority\s+dice|maneuver\s+options?|list\s+of\s+maneuvers)\b/i.test(fullText);
+    if (isManeuver) {
+      if (!data.subclassManeuverPackTag) {
+        data.subclassManeuverPackTag = 'battle-master';
+      }
+      if (!data.superiorityDiceType) {
+        const diceMatch = fullText.match(/\b(?:die\s+is\s+a|dice\s+are)\s+(d[468]|d1[02])\b/i);
+        data.superiorityDiceType = diceMatch ? diceMatch[1].toLowerCase() : 'd8';
+      }
+    }
+
+    // 4. Subclass Spellcasting (e.g. Eldritch Knight, Arcane Trickster)
+    const isEldritchKnight = /eldritch\s+knight/i.test(data.name || '');
+    const isArcaneTrickster = /arcane\s+trickster/i.test(data.name || '');
+    const className = String(data.className || '').toLowerCase();
+    const isNonCaster = ['fighter', 'rogue', 'barbarian', 'monk'].includes(className);
+    const hasSpellcasting =
+      isEldritchKnight ||
+      isArcaneTrickster ||
+      (isNonCaster && /\bSpellcasting\b/i.test(fullText) && /\b(?:spell\s+slots|cantrips?)\b/i.test(fullText));
+
+    if (hasSpellcasting) {
+      if (!data.spellcasting || typeof data.spellcasting !== 'object') {
+        data.spellcasting = {};
+      }
+      let ability = data.spellcasting.spellcastingAbility;
+      if (!ability) {
+        if (/\bWisdom\s+is\s+your\s+spellcasting\s+ability\b/i.test(fullText)) {
+          ability = 'Wisdom';
+        } else if (/\bCharisma\s+is\s+your\s+spellcasting\s+ability\b/i.test(fullText)) {
+          ability = 'Charisma';
+        } else {
+          ability = 'Intelligence';
+        }
+      }
+      data.spellcasting.spellcastingAbility = ability;
+      data.spellcasting.spellcastingType = data.spellcasting.spellcastingType || 'known';
+    }
 
     this.ensureBooksArray(data, options, coercedFields, tickCheck);
     this.ensureEmbeddedTranslation(data, options, ['name', 'description', 'features'], tickCheck);
@@ -816,13 +1633,30 @@ export class PropertyValidator {
     }
 
     tickCheck();
+    if (data.preRequisite !== undefined && data.prerequisite === undefined) {
+      data.prerequisite = data.preRequisite;
+      delete data.preRequisite;
+    }
     data.prerequisite = data.prerequisite || 'None';
     data.repeatable = Boolean(data.repeatable);
     data.features = Array.isArray(data.features) ? data.features : [];
     data.system = data.system || 'dnd5e';
 
+    if (data.translations && typeof data.translations === 'object') {
+      for (const loc of Object.values(data.translations) as any[]) {
+        if (loc && typeof loc === 'object') {
+          if (loc.preRequisite !== undefined) {
+            if (loc.prerequisite === undefined) {
+              loc.prerequisite = loc.preRequisite;
+            }
+            delete loc.preRequisite;
+          }
+        }
+      }
+    }
+
     this.ensureBooksArray(data, options, coercedFields, tickCheck);
-    this.ensureEmbeddedTranslation(data, options, ['name', 'description', 'features'], tickCheck);
+    this.ensureEmbeddedTranslation(data, options, ['name', 'description', 'features', 'featType', 'prerequisite'], tickCheck);
   }
 
   /**
@@ -883,6 +1717,15 @@ export class PropertyValidator {
     data.damage = data.damage || '1d6';
     data.damageType = (data.damageType || 'slashing').toLowerCase();
 
+    // Sanitize mixed damage strings e.g. "1d4 piercing" or "2d6 slashing"
+    const dmgParts = String(data.damage).match(/^(\d+d\d+(?:\s*[+-]\s*\d+)?)\s*([a-zA-Z]+)?$/i);
+    if (dmgParts) {
+      data.damage = dmgParts[1].trim();
+      if (dmgParts[2] && (!data.damageType || data.damageType === 'slashing')) {
+        data.damageType = dmgParts[2].toLowerCase().trim();
+      }
+    }
+
     tickCheck();
     if (data.weight !== undefined) {
       const wt = parseFloat(String(data.weight));
@@ -898,11 +1741,151 @@ export class PropertyValidator {
 
     tickCheck();
     data.properties = Array.isArray(data.properties) ? data.properties : [];
+
+    // Coerce singular mastery into masteries array if present
+    if (data.mastery && (!data.masteries || data.masteries.length === 0)) {
+      data.masteries = [String(data.mastery).trim()];
+    }
     data.masteries = Array.isArray(data.masteries) ? data.masteries : [];
+
+    // Description fallback
+    if (!data.description || typeof data.description !== 'string' || data.description.trim() === '') {
+      data.description = `Proficiency with a ${data.name} allows you to add your proficiency bonus to the attack roll for any attack you make with it.`;
+    }
+
     data.type = data.isMagical ? 'magic-weapon' : 'weapon';
     data.isMagical = Boolean(data.isMagical);
     data.edition = data.edition || '2024';
     data.system = data.system || 'dnd5e';
+
+    this.ensureBooksArray(data, options, coercedFields, tickCheck);
+    this.ensureEmbeddedTranslation(data, options, ['name', 'description'], tickCheck);
+  }
+
+  /**
+   * Armor and Shield property validation
+   */
+  private static validateArmorProperties(
+    data: any,
+    targetSchema: any,
+    options: NormalizeOptions,
+    coercedFields: CoercedField[],
+    warnings: string[],
+    errors: string[],
+    tickCheck: () => void
+  ) {
+    tickCheck();
+    if (!data.name || typeof data.name !== 'string') errors.push('Armor "name" is required');
+
+    tickCheck();
+    const validArmorTypes = ['Light', 'Medium', 'Heavy', 'Shield'];
+    const matchedType = validArmorTypes.find(t => t.toLowerCase() === String(data.armorType || '').toLowerCase());
+    data.armorType = matchedType || (String(data.name).toLowerCase().includes('shield') ? 'Shield' : 'Medium');
+
+    tickCheck();
+    if (data.armorClass === undefined && data.ac !== undefined) {
+      data.armorClass = String(data.ac);
+    }
+    data.armorClass = data.armorClass !== undefined ? String(data.armorClass) : (data.armorType === 'Shield' ? '2' : '10 + Dex');
+
+    tickCheck();
+    if (data.strengthRequirement !== undefined && data.strengthRequirement !== null) {
+      const str = parseInt(String(data.strengthRequirement), 10);
+      data.strengthRequirement = isNaN(str) || str <= 0 ? undefined : str;
+    }
+
+    data.stealthDisadvantage = Boolean(data.stealthDisadvantage);
+
+    tickCheck();
+    if (data.weight !== undefined) {
+      const wt = parseFloat(String(data.weight));
+      data.weight = isNaN(wt) ? 1 : wt;
+    } else {
+      data.weight = data.armorType === 'Shield' ? 6 : 20;
+    }
+
+    if (data.cost !== undefined) {
+      const c = parseFloat(String(data.cost));
+      data.cost = isNaN(c) ? 0 : c;
+    }
+
+    data.description = typeof data.description === 'string' ? data.description : '';
+    data.type = data.isMagical ? 'magic-armor' : 'armor';
+    data.isMagical = Boolean(data.isMagical);
+    data.edition = data.edition || '2024';
+    data.system = data.system || 'dnd5e';
+
+    this.ensureBooksArray(data, options, coercedFields, tickCheck);
+    this.ensureEmbeddedTranslation(data, options, ['name', 'description'], tickCheck);
+  }
+
+  /**
+   * General non-magical item and adventuring gear validation
+   */
+  private static validateItemProperties(
+    data: any,
+    targetSchema: any,
+    options: NormalizeOptions,
+    coercedFields: CoercedField[],
+    warnings: string[],
+    errors: string[],
+    tickCheck: () => void
+  ) {
+    tickCheck();
+    if (!data.name || typeof data.name !== 'string') errors.push('Item "name" is required');
+
+    tickCheck();
+    data.type = 'equipment';
+
+    const validEntityTypes = [
+      'tool', 'kit', 'utility', 'camping-gear', 'clothing',
+      'light-source', 'container', 'instrument', 'game',
+      'adventuring-gear', 'food-drink', 'transport', 'other'
+    ];
+    let entityType = String(data.entityType || '').toLowerCase().trim();
+    if (!validEntityTypes.includes(entityType)) {
+      const lowerName = String(data.name || '').toLowerCase();
+      if (lowerName.includes('tool') || lowerName.includes('kit') || lowerName.includes('supplies')) {
+        entityType = 'tool';
+      } else if (lowerName.includes('rope') || lowerName.includes('chain') || lowerName.includes('ladder') || lowerName.includes('crowbar') || lowerName.includes('grappling')) {
+        entityType = 'utility';
+      } else if (lowerName.includes('tent') || lowerName.includes('bedroll') || lowerName.includes('blanket')) {
+        entityType = 'camping-gear';
+      } else if (lowerName.includes('game') || lowerName.includes('dice') || lowerName.includes('cards') || lowerName.includes('chess')) {
+        entityType = 'game';
+      } else if (lowerName.includes('oil') || lowerName.includes('torch') || lowerName.includes('lantern') || lowerName.includes('candle') || lowerName.includes('lamp')) {
+        entityType = 'light-source';
+      } else if (lowerName.includes('clothing') || lowerName.includes('robes') || lowerName.includes('clothes') || lowerName.includes('costume')) {
+        entityType = 'clothing';
+      } else if (lowerName.includes('food') || lowerName.includes('rations') || lowerName.includes('meal') || lowerName.includes('water')) {
+        entityType = 'food-drink';
+      } else if (lowerName.includes('component pouch') || lowerName.includes('focus') || lowerName.includes('holy symbol') || lowerName.includes('pack') || lowerName.includes('backpack')) {
+        entityType = 'adventuring-gear';
+      } else if (lowerName.includes('bag') || lowerName.includes('chest') || lowerName.includes('barrel') || lowerName.includes('basket') || lowerName.includes('pouch') || lowerName.includes('sack')) {
+        entityType = 'container';
+      } else if (lowerName.includes('flute') || lowerName.includes('drum') || lowerName.includes('lute') || lowerName.includes('horn') || lowerName.includes('pipe') || lowerName.includes('lyre')) {
+        entityType = 'instrument';
+      } else if (lowerName.includes('ship') || lowerName.includes('boat') || lowerName.includes('cart') || lowerName.includes('wagon') || lowerName.includes('carriage') || lowerName.includes('saddle')) {
+        entityType = 'transport';
+      } else {
+        entityType = 'adventuring-gear';
+      }
+    }
+    data.entityType = entityType;
+
+    if (data.cost !== undefined && data.cost !== null) {
+      data.cost = String(data.cost);
+    }
+    if (data.weight !== undefined && data.weight !== null) {
+      data.weight = String(data.weight);
+    }
+
+    data.description = typeof data.description === 'string' ? data.description : '';
+    data.edition = data.edition || '2024';
+    data.system = data.system || 'dnd5e';
+
+    delete data.rarity;
+    delete data.attunement;
 
     this.ensureBooksArray(data, options, coercedFields, tickCheck);
     this.ensureEmbeddedTranslation(data, options, ['name', 'description'], tickCheck);

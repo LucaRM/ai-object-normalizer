@@ -9,7 +9,7 @@ export class GroqProvider implements NormalizerProvider {
   private model: string;
   private available = true;
 
-  constructor(apiKey?: string, model: string = process.env.GROQ_MODEL || 'llama-3.3-70b-versatile') {
+  constructor(apiKey?: string, model: string = process.env.GROQ_MODEL || 'openai/gpt-oss-120b') {
     this.apiKey = apiKey || process.env.GROQ_API_KEY;
     this.model = model;
   }
@@ -27,6 +27,7 @@ export class GroqProvider implements NormalizerProvider {
       throw new NormalizerError('Groq API key is required', ErrorType.API_ERROR, this.name);
     }
 
+    const timeoutMs = options?.providerTimeoutMs || 12000;
     try {
       const prompt = this.buildPrompt(text, schema, options);
 
@@ -53,7 +54,8 @@ export class GroqProvider implements NormalizerProvider {
             'Content-Type': 'application/json',
             Authorization: `Bearer ${this.apiKey}`
           },
-          timeout: 25000
+          timeout: timeoutMs,
+          signal: AbortSignal.timeout(timeoutMs)
         }
       );
 
@@ -67,8 +69,19 @@ export class GroqProvider implements NormalizerProvider {
       if (error instanceof NormalizerError) {
         throw error;
       }
+      if (error.name === 'AbortError' || error.code === 'ECONNABORTED' || error.code === 'ERR_CANCELED' || /timeout/i.test(error.message)) {
+        throw new NormalizerError(
+          `Groq request timed out after ${timeoutMs}ms`,
+          ErrorType.NETWORK_ERROR,
+          this.name,
+          undefined,
+          error
+        );
+      }
       const status = error.response?.status;
-      const retryAfter = error.response?.headers?.['retry-after'];
+      const headers = error.response?.headers;
+      const retryAfter = headers?.['retry-after'] || headers?.['retry-after-ms'];
+      const resetHeader = headers?.['x-ratelimit-reset-requests'] || headers?.['x-ratelimit-reset-tokens'];
       const responseData = error.response?.data;
       const detailMsg =
         (typeof responseData === 'object'
@@ -79,7 +92,7 @@ export class GroqProvider implements NormalizerProvider {
 
       if (status === 429) {
         throw new NormalizerError(
-          `Groq rate limit exceeded: ${detailMsg}`,
+          `Groq rate limit exceeded: ${detailMsg}${resetHeader ? ` (reset in: ${resetHeader})` : ''}`,
           ErrorType.RATE_LIMIT,
           this.name,
           retryAfter ? Number(retryAfter) : undefined,
@@ -125,6 +138,7 @@ RULES:
 2. Follow the exact keys and data structure of the Target Schema Template.
 3. Extract all values faithfully from the raw text. Coerce numbers to numeric integers/floats if the schema indicates numeric values.
 4. RELATIONAL FIELDS & FOREIGN REFERENCES: For fields that tie into another entity (such as 'feat' in background, 'books' references, 'classId' in subclass, 'baseItem' in magical items, or spell lists), return the human-readable NAME of the referenced entity (e.g. feat: "Savage Attacker", books: ["Player's Handbook 2024"], classId: "Fighter"). Do NOT invent random hexadecimal ObjectIds for foreign entities. The importing script will resolve the database relationship by matching entity names.
+5. ANTI-HALLUCINATION / ANTI-BLEED RULE: The Target Schema Template below provides structural guidance using sample values. You MUST extract the name, description, traits, and attributes strictly from the Raw Text. NEVER copy placeholder names (such as "Elf", "Fighter", "Soldier", "Flame Tongue", "Fireball") or example lore descriptions into your output unless the Raw Text explicitly describes them!
 
 Target Schema:
 ${JSON.stringify(promptSchema, null, 2)}

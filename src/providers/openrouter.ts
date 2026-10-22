@@ -29,6 +29,7 @@ export class OpenRouterProvider implements NormalizerProvider {
       throw new NormalizerError('OpenRouter API key is required', ErrorType.API_ERROR, this.name);
     }
 
+    const timeoutMs = options?.providerTimeoutMs || 12000;
     try {
       const prompt = this.buildPrompt(text, schema, options);
 
@@ -56,7 +57,8 @@ export class OpenRouterProvider implements NormalizerProvider {
             'HTTP-Referer': 'http://localhost:3009',
             'X-Title': 'Object Normalizer'
           },
-          timeout: 40000
+          timeout: timeoutMs,
+          signal: AbortSignal.timeout(timeoutMs)
         }
       );
 
@@ -69,6 +71,15 @@ export class OpenRouterProvider implements NormalizerProvider {
     } catch (error: any) {
       if (error instanceof NormalizerError) {
         throw error;
+      }
+      if (error.name === 'AbortError' || error.code === 'ECONNABORTED' || error.code === 'ERR_CANCELED' || /timeout/i.test(error.message)) {
+        throw new NormalizerError(
+          `OpenRouter request timed out after ${timeoutMs}ms`,
+          ErrorType.NETWORK_ERROR,
+          this.name,
+          undefined,
+          error
+        );
       }
       const status = error.response?.status;
       const retryAfter = error.response?.headers?.['retry-after'];

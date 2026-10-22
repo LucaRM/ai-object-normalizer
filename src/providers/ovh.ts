@@ -24,9 +24,12 @@ export class OVHProvider implements NormalizerProvider {
 
   async normalize(text: string, schema: any, options: NormalizeOptions): Promise<string> {
     const prompt = this.buildPrompt(text, schema, options);
+    const timeoutMs = options?.providerTimeoutMs || 12000;
+    const signal = AbortSignal.timeout(timeoutMs);
     let lastError: any = null;
 
     for (let i = 0; i < this.models.length; i++) {
+      if (signal.aborted) break;
       const model = this.models[(this.currentModelIndex + i) % this.models.length];
       try {
         const response = await axios.post(
@@ -51,7 +54,8 @@ export class OVHProvider implements NormalizerProvider {
             headers: {
               'Content-Type': 'application/json'
             },
-            timeout: 25000
+            timeout: timeoutMs,
+            signal
           }
         );
 
@@ -65,8 +69,19 @@ export class OVHProvider implements NormalizerProvider {
         throw new Error(`Empty response from model ${model}`);
       } catch (err: any) {
         lastError = err;
+        if (signal.aborted) break;
         console.warn(`[OVHProvider] Model ${model} failed: ${err.message}. Trying next fallback...`);
       }
+    }
+
+    if (signal.aborted || lastError?.name === 'AbortError' || lastError?.code === 'ECONNABORTED' || lastError?.code === 'ERR_CANCELED' || /timeout/i.test(lastError?.message)) {
+      throw new NormalizerError(
+        `OVH request timed out after ${timeoutMs}ms`,
+        ErrorType.NETWORK_ERROR,
+        this.name,
+        undefined,
+        lastError
+      );
     }
 
     const status = lastError?.response?.status;

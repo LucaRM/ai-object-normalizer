@@ -27,6 +27,7 @@ export class OpenAIProvider implements NormalizerProvider {
       throw new NormalizerError('OpenAI API key is required', ErrorType.API_ERROR, this.name);
     }
 
+    const timeoutMs = options?.providerTimeoutMs || 12000;
     try {
       const prompt = this.buildPrompt(text, schema, options);
 
@@ -53,7 +54,8 @@ export class OpenAIProvider implements NormalizerProvider {
             'Content-Type': 'application/json',
             Authorization: `Bearer ${this.apiKey}`
           },
-          timeout: 25000
+          timeout: timeoutMs,
+          signal: AbortSignal.timeout(timeoutMs)
         }
       );
 
@@ -66,6 +68,15 @@ export class OpenAIProvider implements NormalizerProvider {
     } catch (error: any) {
       if (error instanceof NormalizerError) {
         throw error;
+      }
+      if (error.name === 'AbortError' || error.code === 'ECONNABORTED' || error.code === 'ERR_CANCELED' || /timeout/i.test(error.message)) {
+        throw new NormalizerError(
+          `OpenAI request timed out after ${timeoutMs}ms`,
+          ErrorType.NETWORK_ERROR,
+          this.name,
+          undefined,
+          error
+        );
       }
       const status = error.response?.status;
       const retryAfter = error.response?.headers?.['retry-after'];
