@@ -57,7 +57,17 @@ app.get('/swagger.json', (req: Request, res: Response) => res.json(swaggerDocume
 function initializeNormalizer(): ObjectNormalizer {
   const normalizer = new ObjectNormalizer();
 
-  // 1. Ultra-fast and high-volume free tier providers
+  // 0. Priority #1: Local Ollama (Qwen 2.5) - 100% Free, Private, Offline & Zero Rate Limits
+  if (process.env.OLLAMA_ENABLED !== 'false') {
+    normalizer.addProvider(new OllamaProvider(
+      process.env.OLLAMA_BASE_URL || 'http://localhost:11434/v1',
+      process.env.OLLAMA_MODEL || 'qwen2.5:7b',
+      process.env.OLLAMA_API_KEY || 'ollama',
+      'Local Ollama (Qwen 2.5)'
+    ));
+  }
+
+  // 1. Ultra-fast and high-volume free tier providers (Cloud failover)
   if (process.env.GROQ_API_KEY) {
     normalizer.addProvider(new GroqProvider(process.env.GROQ_API_KEY));
   }
@@ -93,9 +103,6 @@ function initializeNormalizer(): ObjectNormalizer {
   }
   if (process.env.ANTHROPIC_API_KEY) {
     normalizer.addProvider(new AnthropicProvider(process.env.ANTHROPIC_API_KEY));
-  }
-  if (process.env.OLLAMA_ENABLED === 'true') {
-    normalizer.addProvider(new OllamaProvider());
   }
 
   // 2. Free Keyless AI Models (Zero signup, zero API keys required - active by default)
@@ -438,7 +445,7 @@ app.post('/database/providers/:id/test', async (req: Request, res: Response) => 
     const result = await normalizer.normalize(testSample, 'monster', {
       specificProvider: doc.name || paramId,
       allowMock: false,
-      providerTimeoutMs: 8000
+      providerTimeoutMs: 15000
     });
 
     res.json({
@@ -508,6 +515,10 @@ app.get('/templates/:name', (req: Request, res: Response) => {
   res.json(template);
 });
 
+// Helper for extracting clean string from headers
+const getHeaderString = (val: string | string[] | undefined): string | undefined =>
+  typeof val === 'string' ? val : (Array.isArray(val) ? val[0] : undefined);
+
 // Normalize endpoint
 app.post('/normalize', async (req: Request, res: Response) => {
   const startTime = Date.now();
@@ -520,10 +531,6 @@ app.post('/normalize', async (req: Request, res: Response) => {
         error: 'Property "text" is required and must be a non-empty string'
       });
     }
-
-    // Header overrides for custom API keys if provided per-request
-    const getHeaderString = (val: string | string[] | undefined): string | undefined =>
-      typeof val === 'string' ? val : (Array.isArray(val) ? val[0] : undefined);
 
     const requestedProvider =
       req.body.specificProvider ||
@@ -561,7 +568,13 @@ app.post('/normalize', async (req: Request, res: Response) => {
       ...(req.headers['x-provider-timeout-ms'] && { providerTimeoutMs: Number(req.headers['x-provider-timeout-ms']) }),
       ...(req.body.targetLocale && { targetLocale: req.body.targetLocale }),
       ...(getHeaderString(req.headers['x-target-locale']) && { targetLocale: getHeaderString(req.headers['x-target-locale']) }),
-      ...(req.body.sourceLocale && { sourceLocale: req.body.sourceLocale })
+      ...(req.body.sourceLocale && { sourceLocale: req.body.sourceLocale }),
+      ...(req.body.system && { system: req.body.system }),
+      ...(req.body.edition && { edition: req.body.edition }),
+      ...(req.query.system && { system: String(req.query.system) }),
+      ...(req.query.edition && { edition: String(req.query.edition) }),
+      ...(getHeaderString(req.headers['x-system']) && { system: getHeaderString(req.headers['x-system']) }),
+      ...(getHeaderString(req.headers['x-edition']) && { edition: getHeaderString(req.headers['x-edition']) })
     };
 
     const reqGeminiKey = getHeaderString(req.headers['x-gemini-key']) || getHeaderString(req.headers['x-api-key']);
@@ -576,6 +589,14 @@ app.post('/normalize', async (req: Request, res: Response) => {
     let activeNormalizer = normalizer;
     if (reqGeminiKey || reqOpenAiKey || reqGroqKey || reqCerebrasKey || reqSambaNovaKey || reqMistralKey || reqGitHubKey || reqDeepSeekKey) {
       activeNormalizer = new ObjectNormalizer();
+      if (process.env.OLLAMA_ENABLED !== 'false') {
+        activeNormalizer.addProvider(new OllamaProvider(
+          process.env.OLLAMA_BASE_URL || 'http://localhost:11434/v1',
+          process.env.OLLAMA_MODEL || 'qwen2.5:7b',
+          process.env.OLLAMA_API_KEY || 'ollama',
+          'Local Ollama (Qwen 2.5)'
+        ));
+      }
       if (reqGroqKey) activeNormalizer.addProvider(new GroqProvider(reqGroqKey));
       if (reqCerebrasKey) activeNormalizer.addProvider(new CerebrasProvider(reqCerebrasKey));
       if (reqSambaNovaKey) activeNormalizer.addProvider(new SambaNovaProvider(reqSambaNovaKey));
@@ -688,11 +709,28 @@ app.post('/normalize/batch', async (req: Request, res: Response) => {
           req.body.allowMock === true ||
           options.allowMock === true;
 
+        const itemSystem =
+          item.system ||
+          item.options?.system ||
+          options.system ||
+          req.body.system ||
+          (req.query.system ? String(req.query.system) : undefined) ||
+          getHeaderString(req.headers['x-system']);
+        const itemEdition =
+          item.edition ||
+          item.options?.edition ||
+          options.edition ||
+          req.body.edition ||
+          (req.query.edition ? String(req.query.edition) : undefined) ||
+          getHeaderString(req.headers['x-edition']);
+
         const itemOptions: NormalizeOptions = {
           ...options,
           ...item.options,
           ...(requestedItemProvider && { specificProvider: requestedItemProvider }),
           ...(isMockItem && { allowMock: true }),
+          ...(itemSystem && { system: itemSystem }),
+          ...(itemEdition && { edition: itemEdition }),
           defaults: { ...defaults, ...(options.defaults || {}), ...(item.options?.defaults || {}) }
         };
         const result = await normalizer.normalize(item.text, item.schema, itemOptions);
@@ -749,10 +787,21 @@ app.post('/validate', (req: Request, res: Response) => {
       if (tmpl) targetSchema = tmpl.schema;
     }
 
+    const mergedOptions: NormalizeOptions = {
+      ...options,
+      ...(req.body.system && { system: req.body.system }),
+      ...(req.body.edition && { edition: req.body.edition }),
+      ...(req.query.system && { system: String(req.query.system) }),
+      ...(req.query.edition && { edition: String(req.query.edition) }),
+      ...(getHeaderString(req.headers['x-system']) && { system: getHeaderString(req.headers['x-system']) }),
+      ...(getHeaderString(req.headers['x-edition']) && { edition: getHeaderString(req.headers['x-edition']) }),
+      ...(template && { template })
+    };
+
     const { normalized, validation, relations } = PropertyValidator.normalizeAndValidate(
       data,
       targetSchema,
-      options
+      mergedOptions
     );
 
     const mongoShell = ObjectFormatter.toMongoShell(normalized);

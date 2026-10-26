@@ -30,7 +30,8 @@ export const BACKGROUND_TEMPLATE = {
     }
   ],
   books: ["Player's Handbook 2024"],
-  system: 'dnd5e',
+  edition: '2024',
+  system: 'D&D 5.5e',
   translations: {
     'pt-BR': {
       name: 'Soldado',
@@ -63,7 +64,8 @@ export const BACKGROUND_PROMPT_GUIDE = `### SPECIAL INSTRUCTIONS FOR D&D BACKGRO
 5. toolProficiency: Array of tools or gaming sets granted.
 6. equipment: Equipment options and item names (e.g. Spear, Shortbow) with quantity.
 7. features: Background features with { name, description, category: 'Social' | 'Utility' | 'Skills' | 'Active' | 'Passive' }.
-8. books: Array of source book names (e.g. ["Player's Handbook 2024"]) or book ObjectIds if specified.`;
+8. books: Array of source book names (e.g. ["Player's Handbook 2024"]) or book ObjectIds if specified.
+9. edition: "2024", system: "D&D 5.5e".`;
 
 export const BACKGROUND_EXAMPLE_PARAGRAPH = `Soldier
 Source: Player's Handbook 2024

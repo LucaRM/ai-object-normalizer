@@ -12,7 +12,7 @@ export const WEAPON_TEMPLATE = {
   type: 'weapon',
   isMagical: false,
   edition: '2024',
-  system: 'dnd5e',
+  system: 'D&D 5.5e',
   books: ["Player's Handbook 2024"],
   translations: {
     'pt-BR': {
@@ -41,7 +41,8 @@ export const WEAPON_PROMPT_GUIDE = `### SPECIAL INSTRUCTIONS FOR D&D WEAPONS:
 6. cost: Numeric cost in GP (e.g. 15 for 15 gp, 2 for 2 gp, 0.05 for 5 cp).
 7. properties: Array of weapon properties (e.g., ["Versatile (1d10)"], ["Finesse", "Light", "Thrown (20/60)"]).
 8. masteries: Array of 2024 weapon mastery properties (e.g., ["Sap"], ["Nick"], ["Topple"], ["Vex"], ["Slow"], ["Push"], ["Graze"], ["Cleave"]).
-9. type: "weapon" (or "magic-weapon" if magical). isMagical: false (or true).`;
+9. type: "weapon" (or "magic-weapon" if magical). isMagical: false (or true).
+10. edition: "2024", system: "D&D 5.5e".`;
 
 export const WEAPON_EXAMPLE_PARAGRAPH = `Longsword
 Martial Melee Weapon

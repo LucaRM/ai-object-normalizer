@@ -42,6 +42,16 @@ export interface NormalizeOptions {
   specificProvider?: string;
 
   /**
+   * System / Edition identifier string to echo into output document (e.g. 'D&D 5.5e' or 'D&D 5e (2014)')
+   */
+  system?: string;
+
+  /**
+   * Rules edition (e.g. '2024' or '2014')
+   */
+  edition?: string;
+
+  /**
    * Default values to enrich the normalized object with
    */
   defaults?: Record<string, any>;

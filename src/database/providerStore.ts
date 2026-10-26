@@ -32,10 +32,24 @@ export const KNOWN_PROVIDERS: Array<{
   id: string;
   name: string;
   providerType: string;
-  envKey: string;
+  envKey?: string;
   envModelKey?: string;
   defaultModel?: string;
+  envBaseUrlKey?: string;
+  defaultBaseUrl?: string;
+  defaultApiKey?: string;
 }> = [
+  {
+    id: 'ollama',
+    name: 'Local Ollama (Qwen 2.5)',
+    providerType: 'openai-compatible',
+    envKey: 'OLLAMA_API_KEY',
+    envModelKey: 'OLLAMA_MODEL',
+    defaultModel: 'qwen2.5:7b',
+    envBaseUrlKey: 'OLLAMA_BASE_URL',
+    defaultBaseUrl: 'http://localhost:11434/v1',
+    defaultApiKey: 'ollama'
+  },
   { id: 'groq', name: 'Groq', providerType: 'groq', envKey: 'GROQ_API_KEY', envModelKey: 'GROQ_MODEL', defaultModel: 'openai/gpt-oss-120b' },
   { id: 'cerebras', name: 'Cerebras', providerType: 'cerebras', envKey: 'CEREBRAS_API_KEY', envModelKey: 'CEREBRAS_MODEL', defaultModel: 'llama-3.3-70b' },
   { id: 'sambanova', name: 'SambaNova', providerType: 'sambanova', envKey: 'SAMBANOVA_API_KEY', envModelKey: 'SAMBANOVA_MODEL', defaultModel: 'Meta-Llama-3.3-70B-Instruct' },
@@ -202,7 +216,7 @@ export class FileProviderStore implements IProviderStore {
     return this.upsert({
       id: existing.id,
       isValid,
-      validationError: isValid ? undefined : validationError
+      validationError: isValid ? (null as any) : (validationError || null)
     });
   }
 
@@ -233,9 +247,11 @@ export class FileProviderStore implements IProviderStore {
     let updated = 0;
 
     for (const p of KNOWN_PROVIDERS) {
-      const isKeyless = p.id === 'pollinations' || p.id === 'ovh';
-      const rawKey = process.env[p.envKey];
+      const isOllama = p.id === 'ollama';
+      const isKeyless = p.id === 'pollinations' || p.id === 'ovh' || isOllama;
+      const rawKey = (p.envKey ? process.env[p.envKey] : undefined) || p.defaultApiKey;
       const model = p.envModelKey ? process.env[p.envModelKey] || p.defaultModel : p.defaultModel;
+      const baseUrl = p.envBaseUrlKey ? process.env[p.envBaseUrlKey] || p.defaultBaseUrl : p.defaultBaseUrl;
 
       const hasKey = isKeyless || (rawKey && rawKey.trim().length > 0);
       if (!hasKey) continue;
@@ -248,6 +264,7 @@ export class FileProviderStore implements IProviderStore {
           name: p.name,
           providerType: p.providerType,
           apiKey: rawKey || undefined,
+          baseUrl,
           model,
           isValid: true,
           isAvailable: true,
@@ -255,14 +272,22 @@ export class FileProviderStore implements IProviderStore {
         });
         added++;
       } else {
-        // Update key and model if changed in .env, while preserving manual off toggle, cooldown and validity
         const keyChanged = rawKey && existing.apiKey !== rawKey;
         const modelChanged = model && existing.model !== model;
-        if (keyChanged || modelChanged) {
+        const baseUrlChanged = baseUrl && existing.baseUrl !== baseUrl;
+        const nameChanged = p.name && existing.name !== p.name;
+        const typeChanged = p.providerType && existing.providerType !== p.providerType;
+        const shouldRevalidate = isOllama && !existing.isValid && !!baseUrl;
+        if (keyChanged || modelChanged || baseUrlChanged || nameChanged || typeChanged || shouldRevalidate) {
           await this.upsert({
             id: p.id,
+            name: p.name,
+            providerType: p.providerType,
             apiKey: rawKey || existing.apiKey,
             model: model || existing.model,
+            baseUrl: baseUrl || existing.baseUrl,
+            isValid: shouldRevalidate ? true : existing.isValid,
+            validationError: shouldRevalidate ? (null as any) : existing.validationError,
             isAvailable: isManuallyDisabled ? false : existing.isAvailable
           });
           updated++;
@@ -441,7 +466,7 @@ export class MongoProviderStore implements IProviderStore {
     return this.upsert({
       id: existing.id,
       isValid,
-      validationError: isValid ? undefined : validationError
+      validationError: isValid ? (null as any) : (validationError || null)
     });
   }
 
@@ -472,9 +497,11 @@ export class MongoProviderStore implements IProviderStore {
     let updated = 0;
 
     for (const p of KNOWN_PROVIDERS) {
-      const isKeyless = p.id === 'pollinations' || p.id === 'ovh';
-      const rawKey = process.env[p.envKey];
+      const isOllama = p.id === 'ollama';
+      const isKeyless = p.id === 'pollinations' || p.id === 'ovh' || isOllama;
+      const rawKey = (p.envKey ? process.env[p.envKey] : undefined) || p.defaultApiKey;
       const model = p.envModelKey ? process.env[p.envModelKey] || p.defaultModel : p.defaultModel;
+      const baseUrl = p.envBaseUrlKey ? process.env[p.envBaseUrlKey] || p.defaultBaseUrl : p.defaultBaseUrl;
 
       const hasKey = isKeyless || (rawKey && rawKey.trim().length > 0);
       if (!hasKey) continue;
@@ -487,6 +514,7 @@ export class MongoProviderStore implements IProviderStore {
           name: p.name,
           providerType: p.providerType,
           apiKey: rawKey || undefined,
+          baseUrl,
           model,
           isValid: true,
           isAvailable: true,
@@ -496,11 +524,20 @@ export class MongoProviderStore implements IProviderStore {
       } else {
         const keyChanged = rawKey && existing.apiKey !== rawKey;
         const modelChanged = model && existing.model !== model;
-        if (keyChanged || modelChanged) {
+        const baseUrlChanged = baseUrl && existing.baseUrl !== baseUrl;
+        const nameChanged = p.name && existing.name !== p.name;
+        const typeChanged = p.providerType && existing.providerType !== p.providerType;
+        const shouldRevalidate = isOllama && !existing.isValid && !!baseUrl;
+        if (keyChanged || modelChanged || baseUrlChanged || nameChanged || typeChanged || shouldRevalidate) {
           await this.upsert({
             id: p.id,
+            name: p.name,
+            providerType: p.providerType,
             apiKey: rawKey || existing.apiKey,
             model: model || existing.model,
+            baseUrl: baseUrl || existing.baseUrl,
+            isValid: shouldRevalidate ? true : existing.isValid,
+            validationError: shouldRevalidate ? (null as any) : existing.validationError,
             isAvailable: isManuallyDisabled ? false : existing.isAvailable
           });
           updated++;

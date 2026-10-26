@@ -391,8 +391,14 @@ export class MockProvider implements NormalizerProvider {
       }));
       const firstEntryName = entries[0].name;
       const idx = bodyText.indexOf(firstEntryName);
-      if (idx > 0) {
-        description = bodyText.substring(0, idx).trim();
+      const intro = idx > 0 ? bodyText.substring(0, idx).trim() : '';
+      if (intro.length > 0) {
+        description = intro;
+      } else {
+        const featureNames = features.map(f => f.name).filter(Boolean);
+        description = featureNames.length > 0
+          ? `You gain the following benefits: ${featureNames.join(', ')}.`
+          : 'You gain the following benefits:';
       }
     } else {
       features = [
@@ -407,7 +413,7 @@ export class MockProvider implements NormalizerProvider {
     const clone: any = {
       ...FEAT_TEMPLATE,
       name,
-      description: description || bodyText.trim(),
+      description: description || 'You gain the following benefits:',
       featType,
       prerequisite,
       repeatable,

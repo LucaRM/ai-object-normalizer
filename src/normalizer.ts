@@ -19,6 +19,7 @@ import { MonsterActionParser } from './pipeline/actionParser';
 import { getTemplate } from './templates';
 import { IProviderStore, getProviderStore, RateLimitType, ProviderDocument } from './database';
 import { CustomOpenAIProvider } from './providers/custom';
+import { OllamaProvider } from './providers/ollama';
 
 export class ObjectNormalizer {
   private providers: NormalizerProvider[];
@@ -48,6 +49,7 @@ export class ObjectNormalizer {
    */
   public findProviderId(providerName: string): string {
     const lower = providerName.toLowerCase();
+    if (lower.includes('ollama')) return 'ollama';
     if (lower.includes('cerebras')) return 'cerebras';
     if (lower.includes('sambanova')) return 'sambanova';
     if (lower.includes('mistral')) return 'mistral';
@@ -62,7 +64,6 @@ export class ObjectNormalizer {
     if (lower.includes('ovh') || lower.includes('kepler')) return 'ovh';
     if (lower.includes('openai') || lower.includes('chatgpt')) return 'openai';
     if (lower.includes('anthropic') || lower.includes('claude')) return 'anthropic';
-    if (lower.includes('ollama')) return 'ollama';
     if (lower.includes('mock') || lower.includes('deterministic')) return 'mock';
     return lower.replace(/[^a-z0-9_-]/g, '');
   }
@@ -84,15 +85,40 @@ export class ObjectNormalizer {
       for (const doc of docs) {
         let provider = this.providers.find(p => this.findProviderId(p.name) === doc.id);
 
-        // Dynamically register custom provider if added through frontend / database
-        if (!provider && (doc.apiKey || doc.baseUrl)) {
-          const custom = new CustomOpenAIProvider(doc.id, doc.name, doc.apiKey, doc.model, doc.baseUrl);
-          this.addProvider(custom);
-          provider = custom;
+        // Dynamically register provider if added through frontend / database
+        if (!provider && (doc.apiKey || doc.baseUrl || doc.id === 'ollama')) {
+          if (doc.id === 'ollama') {
+            const ollama = new OllamaProvider(
+              doc.baseUrl || process.env.OLLAMA_BASE_URL || 'http://localhost:11434/v1',
+              doc.model || process.env.OLLAMA_MODEL || 'qwen2.5:7b',
+              doc.apiKey || process.env.OLLAMA_API_KEY || 'ollama',
+              doc.name || 'Local Ollama (Qwen 2.5)'
+            );
+            this.addProvider(ollama);
+            provider = ollama;
+          } else {
+            const custom = new CustomOpenAIProvider(doc.id, doc.name, doc.apiKey, doc.model, doc.baseUrl);
+            this.addProvider(custom);
+            provider = custom;
+          }
           console.log(`[Normalizer] 🔌 Dynamically registered provider: "${doc.name}" (${doc.model || 'default'})`);
         }
 
         if (!provider) continue;
+
+        // Keep runtime provider properties in sync with database document
+        if (doc.name && provider.name !== doc.name) {
+          provider.name = doc.name;
+        }
+        if (doc.model && typeof (provider as any).setModel === 'function') {
+          (provider as any).setModel(doc.model);
+        }
+        if (doc.baseUrl && typeof (provider as any).setBaseUrl === 'function') {
+          (provider as any).setBaseUrl(doc.baseUrl);
+        }
+        if (doc.apiKey && typeof (provider as any).setApiKey === 'function') {
+          (provider as any).setApiKey(doc.apiKey);
+        }
 
         // 0. If provider was manually disabled by user
         if (doc.manuallyDisabled === true || doc.isAvailable === false) {
@@ -141,8 +167,22 @@ export class ObjectNormalizer {
           }
         }
       }
+      // Ensure local Ollama is placed at index 0 (top of the cascading failover list)
+      this.prioritizeLocalProviders();
     } catch (err: any) {
       console.warn('[Normalizer] Failed to sync with database store:', err.message);
+    }
+  }
+
+  /**
+   * Ensure Local Ollama is always at index 0 (top priority) of the cascading failover list
+   */
+  public prioritizeLocalProviders(): void {
+    const ollamaIdx = this.providers.findIndex(p => this.findProviderId(p.name) === 'ollama');
+    if (ollamaIdx > 0) {
+      const [ollamaProvider] = this.providers.splice(ollamaIdx, 1);
+      this.providers.unshift(ollamaProvider);
+      console.log(`[Normalizer] 🚀 Local Ollama prioritized to Top of Cascade (Priority #1)`);
     }
   }
 
@@ -635,8 +675,8 @@ export class ObjectNormalizer {
    * Prevents hitting burst rate limits and API lockouts.
    */
   public async enforceCallPacing(provider: NormalizerProvider, customIntervalMs?: number): Promise<void> {
-    // Offline mock / deterministic extractor needs no network pacing
-    if (this.isMockProvider(provider)) {
+    // Offline mock / deterministic extractor and local Ollama need no network pacing
+    if (this.isMockProvider(provider) || this.findProviderId(provider.name) === 'ollama') {
       return;
     }
 
@@ -756,6 +796,7 @@ export class ObjectNormalizer {
    */
   addProvider(provider: NormalizerProvider): void {
     this.providers.push(provider);
+    this.prioritizeLocalProviders();
   }
 
   /**
@@ -793,6 +834,20 @@ export class ObjectNormalizer {
         'A target schema or template must be provided (either as an object or options.template)',
         ErrorType.VALIDATION_ERROR
       );
+    }
+
+    // Ensure system and edition in targetSchema match request options if specified
+    if (options.system || options.edition) {
+      targetSchema = { ...targetSchema };
+      if (options.system) {
+        targetSchema.system = options.system;
+      } else if (options.edition === '2014') {
+        targetSchema.system = 'D&D 5e (2014)';
+        targetSchema.edition = '2014';
+      } else if (options.edition === '2024') {
+        targetSchema.system = 'D&D 5.5e';
+        targetSchema.edition = '2024';
+      }
     }
 
     // 1. Check Result Cache (Deduplication)
@@ -989,7 +1044,8 @@ export class ObjectNormalizer {
 
       try {
         await this.enforceCallPacing(provider, options.minIntervalMs);
-        const providerTimeoutMs = options.providerTimeoutMs || 12000;
+        const defaultTimeout = this.findProviderId(provider.name) === 'ollama' ? 35000 : 12000;
+        const providerTimeoutMs = options.providerTimeoutMs || defaultTimeout;
         let timer: NodeJS.Timeout | undefined;
         const timeoutPromise = new Promise<string>((_, reject) => {
           timer = setTimeout(() => {
@@ -1084,7 +1140,8 @@ export class ObjectNormalizer {
           // Enforce pacing interval before calling external provider
           await this.enforceCallPacing(provider, options.minIntervalMs);
 
-          const providerTimeoutMs = options.providerTimeoutMs || 12000;
+          const defaultTimeout = this.findProviderId(provider.name) === 'ollama' ? 35000 : 12000;
+          const providerTimeoutMs = options.providerTimeoutMs || defaultTimeout;
           let timer: NodeJS.Timeout | undefined;
           const timeoutPromise = new Promise<string>((_, reject) => {
             timer = setTimeout(() => {
@@ -1147,10 +1204,14 @@ export class ObjectNormalizer {
           }
 
           // Set provider offline for parsed cooldown duration only if network/rate-limit error, not format/truncation error
+          // Local Ollama has zero rate limits & zero cooldowns; only falls back briefly (5s) if completely unreachable
+          const isOllama = this.findProviderId(provider.name) === 'ollama';
           const isParseOrTruncation = err.type === ErrorType.PARSE_ERROR || /JSON|parse|unterminated|truncat|max_tokens/i.test(errMsg);
-          if (!isParseOrTruncation) {
-            const cooldownSec = this.parseCooldownSeconds(err, options.defaultCooldownSeconds || 60, options);
-            const rateLimitType = this.detectRateLimitType(err);
+          const isUnreachable = err.code === 'ECONNREFUSED' || /ECONNREFUSED|unreachable|connection refused/i.test(errMsg);
+
+          if (!isParseOrTruncation && (!isOllama || isUnreachable)) {
+            const cooldownSec = isOllama ? 5 : this.parseCooldownSeconds(err, options.defaultCooldownSeconds || 60, options);
+            const rateLimitType = isOllama ? 'minute' : this.detectRateLimitType(err);
             this.setProviderCooldown(provider.name, cooldownSec, errMsg, rateLimitType);
           }
 

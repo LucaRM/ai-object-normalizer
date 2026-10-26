@@ -15,17 +15,25 @@ export class CustomOpenAIProvider implements NormalizerProvider {
     name: string,
     apiKey?: string,
     model: string = 'gpt-4o-mini',
-    baseUrl: string = 'https://api.openai.com/v1'
+    baseUrl?: string
   ) {
     this.id = id.toLowerCase();
     this.name = name || id;
     this.apiKey = apiKey;
     this.model = model;
-    this.baseUrl = baseUrl.replace(/\/+$/, '');
+    const defaultUrl = this.id === 'ollama'
+      ? (process.env.OLLAMA_BASE_URL || 'http://localhost:11434/v1')
+      : 'https://api.openai.com/v1';
+    this.baseUrl = (baseUrl || defaultUrl).replace(/\/+$/, '');
   }
 
   isAvailable(): boolean {
-    return this.available && (!!this.apiKey || this.baseUrl.includes('localhost') || this.baseUrl.includes('127.0.0.1'));
+    return this.available && (
+      !!this.apiKey ||
+      this.baseUrl.includes('localhost') ||
+      this.baseUrl.includes('127.0.0.1') ||
+      this.id === 'ollama'
+    );
   }
 
   setAvailable(state: boolean): void {
@@ -45,7 +53,7 @@ export class CustomOpenAIProvider implements NormalizerProvider {
   }
 
   setBaseUrl(url: string): void {
-    this.baseUrl = url.replace(/\/+$/, '');
+    this.baseUrl = (url || 'https://api.openai.com/v1').replace(/\/+$/, '');
   }
 
   async normalize(text: string, schema: any, options: NormalizeOptions): Promise<string> {

@@ -9,7 +9,8 @@ export const ITEM_TEMPLATE = {
   toolType: "Thieves' Tools",
   proficiencyRequired: true,
   books: ["Player's Handbook 2024"],
-  system: 'dnd5e',
+  edition: '2024',
+  system: 'D&D 5.5e',
   translations: {
     'pt-BR': {
       name: 'Ferramentas de Ladrão',
@@ -48,7 +49,7 @@ export const ITEM_PROMPT_GUIDE = `### SPECIAL INSTRUCTIONS FOR D&D GENERAL ITEMS
 4. cost: Cost string with currency unit (e.g. "25 gp", "1 gp", "5 sp", "50 gp").
 5. weight: Weight string with unit (e.g. "1 lb.", "10 lbs.", "1/4 lb.", "70 lbs.").
 6. description: Comprehensive rules and details on the item's function.
-7. edition: "2024", system: "dnd5e".`;
+7. edition: "2024", system: "D&D 5.5e".`;
 
 export const ITEM_EXAMPLE_PARAGRAPH = `Thieves' Tools
 Tool

@@ -11,7 +11,7 @@ export const ARMOR_TEMPLATE = {
   type: 'armor',
   isMagical: false,
   edition: '2024',
-  system: 'dnd5e',
+  system: 'D&D 5.5e',
   books: ["Player's Handbook 2024"],
   translations: {
     'pt-BR': {
@@ -41,7 +41,7 @@ export const ARMOR_PROMPT_GUIDE = `### SPECIAL INSTRUCTIONS FOR D&D ARMOR & SHIE
 7. cost: Numeric cost in GP (e.g. 1500 for 1500 GP, 75 for 75 GP, 10 for 10 GP).
 8. description: Detailed description of the armor.
 9. type: "armor" (or "magic-armor" if magical). isMagical: false (or true).
-10. edition: "2024", system: "dnd5e".`;
+10. edition: "2024", system: "D&D 5.5e".`;
 
 export const ARMOR_EXAMPLE_PARAGRAPH = `Plate Armor
 Heavy Armor

@@ -81,7 +81,8 @@ export const SPECIES_TEMPLATE = {
     }
   ],
   books: ["Player's Handbook 2024"],
-  system: 'dnd5e',
+  edition: '2024',
+  system: 'D&D 5.5e',
   translations: {
     'pt-BR': {
       name: 'Elfo',
@@ -151,7 +152,8 @@ export const SPECIES_PROMPT_GUIDE = `### SPECIAL INSTRUCTIONS FOR SPECIES / RACE
    - origin feat choices: When text says "gain one Origin feat of your choice" (e.g., Human Versatile):
      selectable: true, requiresChoice: true, choiceType: "feat", featFilter: { featType: "Origin" }.
    - spells: For spell choices or at-will spells:
-     spellChoice: { count: 1, level: 0, spellList: "Wizard" } or atWillSpell: "Thaumaturgy", atWillRecharge: "atWill".`;
+     spellChoice: { count: 1, level: 0, spellList: "Wizard" } or atWillSpell: "Thaumaturgy", atWillRecharge: "atWill".
+9. edition: "2024", system: "D&D 5.5e".`;
 
 export const SPECIES_EXAMPLE_PARAGRAPH = `Elf
 Creature Type: Humanoid

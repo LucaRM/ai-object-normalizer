@@ -33,7 +33,8 @@ export const MAGICAL_ITEM_TEMPLATE = {
   chargeResetOn: 'Never',
   chargeRegeneration: null,
   books: ["Dungeon Master's Guide 2024"],
-  system: 'dnd5e',
+  edition: '2024',
+  system: 'D&D 5.5e',
   translations: {
     'pt-BR': {
       name: 'Espada Larga Língua de Fogo',
@@ -94,7 +95,8 @@ export const MAGICAL_ITEM_PROMPT_GUIDE = `### SPECIAL INSTRUCTIONS FOR MAGICAL I
    - chargeResetOn: If the text mentions charges recharging daily at dawn, set to 'Dawn'. If dusk, 'Dusk'. If long rest, 'Long Rest'. If short rest, 'Short Rest'. If charges do not recharge, 'Never'.
    - chargeRegeneration: String describing recharge rate (e.g. "1d6 + 1 at dawn" or "1d6 + 1 expended charges daily at dawn").
 10. Base Weapon & Armor Extraction:
-   - If the item is a weapon, extract baseItem from parentheses (e.g. "Weapon (dagger)" -> baseItem: "Dagger", damage: "1d4", damageType: "piercing", properties: ["Finesse", "Light", "Thrown"]). Do NOT default to Greatsword unless it is actually a greatsword.`;
+   - If the item is a weapon, extract baseItem from parentheses (e.g. "Weapon (dagger)" -> baseItem: "Dagger", damage: "1d4", damageType: "piercing", properties: ["Finesse", "Light", "Thrown"]). Do NOT default to Greatsword unless it is actually a greatsword.
+11. edition: "2024", system: "D&D 5.5e".`;
 
 export const MAGICAL_ITEM_EXAMPLE_PARAGRAPH = `Flame Tongue
 Weapon (any sword), rare (requires attunement)

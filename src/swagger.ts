@@ -7,7 +7,7 @@ export const swaggerDocument = {
 A high-throughput, multi-provider AI normalization microservice for structured gaming, tabletop RPG, and custom JSON entity extraction.
 
 #### Key Features:
-- **Resilient Cascading Failover**: Groq → SambaNova → Cerebras → Gemini → GitHub Models → Mistral → DeepSeek → OpenRouter → Cohere → Hugging Face → Keyless AI (Pollinations, OVH) → Rule Extractor.
+- **Resilient Cascading Failover**: Local Ollama (Qwen 2.5) → Groq → SambaNova → Cerebras → Gemini → GitHub Models → Mistral → DeepSeek → OpenRouter → Cohere → Hugging Face → Keyless AI (Pollinations, OVH) → Rule Extractor.
 - **Persistent Provider Database**: Tracks all provider API keys, models, validity flags, and cooldown timestamps across server restarts.
 - **Smart Cooldowns**: Automatically parses minute, daily, and monthly rate limits (e.g. waits until 1st of next month UTC for monthly quotas).
 - **Embedded Translation & Auto-Split**: Normalizes multiple monsters in a single raw paste and translates descriptive text into pt-BR, es, fr, etc.`
@@ -49,7 +49,9 @@ A high-throughput, multi-provider AI normalization microservice for structured g
                       targetLocale: { type: 'string', example: 'pt-BR', description: 'Translate natural language descriptions to locale (pt-BR, es, fr, none)' },
                       autoSplit: { type: 'boolean', default: true, description: 'Automatically split multiple creatures or items into separate objects' },
                       chunked: { type: 'boolean', default: true, description: 'Break complex monsters into semantic passes (Header, Traits, Actions, Legendary)' },
-                      allowMock: { type: 'boolean', default: true, description: 'Allow deterministic rule extractor fallback if all AI providers fail' }
+                      allowMock: { type: 'boolean', default: true, description: 'Allow deterministic rule extractor fallback if all AI providers fail' },
+                      system: { type: 'string', example: 'D&D 5.5e', description: 'System identifier (e.g. "D&D 5.5e" for 2024 or "D&D 5e (2014)")' },
+                      edition: { type: 'string', example: '2024', description: 'Rules edition ("2024" or "2014")' }
                     }
                   }
                 }

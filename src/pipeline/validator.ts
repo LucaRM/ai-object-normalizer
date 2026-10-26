@@ -156,6 +156,9 @@ export class PropertyValidator {
       data._id = newId;
     }
 
+    // Ensure system and edition naming conventions (strictly "D&D 5.5e" for 2024 or echoes options.system)
+    this.resolveSystem(data, options, coercedFields, () => checksRun++);
+
     // Ensure timestamps
     const now = new Date().toISOString();
     if (!data.createdAt) {
@@ -574,6 +577,7 @@ export class PropertyValidator {
     data.damageVulnerabilities = toCleanArray(data.damageVulnerabilities);
     data.conditionImmunities = toCleanArray(data.conditionImmunities);
     data.languages = data.languages || '—';
+    this.resolveSystem(data, options, coercedFields, tickCheck);
 
     // 13. Translations check if targetLocale is set
     tickCheck();
@@ -657,7 +661,7 @@ export class PropertyValidator {
     data.ritual = Boolean(data.ritual);
     data.concentration = Boolean(data.concentration);
     data.classes = Array.isArray(data.classes) ? data.classes : [];
-    data.system = data.system || 'dnd5e';
+    this.resolveSystem(data, options, coercedFields, tickCheck);
 
     this.ensureBooksArray(data, options, coercedFields, tickCheck);
     this.ensureEmbeddedTranslation(data, options, ['name', 'description', 'atHigherLevels'], tickCheck);
@@ -759,7 +763,7 @@ export class PropertyValidator {
     tickCheck();
     data.type = 'magic-item';
     data.requiresAttunement = Boolean(data.requiresAttunement);
-    data.system = data.system || 'dnd5e';
+    this.resolveSystem(data, options, coercedFields, tickCheck);
 
     // 1. Attack & Damage Bonuses (Weapons)
     if (data.magicBonusToHit !== undefined && data.magicBonusToHit !== null) {
@@ -962,7 +966,7 @@ export class PropertyValidator {
     tickCheck();
     data.baseLanguages = Array.isArray(data.baseLanguages) ? data.baseLanguages : ['Common'];
     data.features = Array.isArray(data.features) ? data.features : [];
-    data.system = data.system || 'dnd5e';
+    this.resolveSystem(data, options, coercedFields, tickCheck);
 
     // Enrich and automate each species feature for character sheet usage
     data.features = data.features.map((f: any) => PropertyValidator.enrichSpeciesFeature(f, coercedFields));
@@ -1405,7 +1409,7 @@ export class PropertyValidator {
 
     tickCheck();
     data.levelProgression = Array.isArray(data.levelProgression) ? data.levelProgression : [];
-    data.system = data.system || 'dnd5e';
+    this.resolveSystem(data, options, coercedFields, tickCheck);
 
     this.ensureBooksArray(data, options, coercedFields, tickCheck);
     this.ensureEmbeddedTranslation(data, options, ['name', 'description', 'flavorText'], tickCheck);
@@ -1438,7 +1442,7 @@ export class PropertyValidator {
     }
 
     tickCheck();
-    data.system = data.system || 'dnd5e';
+    this.resolveSystem(data, options, coercedFields, tickCheck);
 
     // 1. Subclass Proficiencies (traits)
     if (!data.traits || typeof data.traits !== 'object') {
@@ -1640,10 +1644,28 @@ export class PropertyValidator {
     data.prerequisite = data.prerequisite || 'None';
     data.repeatable = Boolean(data.repeatable);
     data.features = Array.isArray(data.features) ? data.features : [];
-    data.system = data.system || 'dnd5e';
+
+    // Ensure non-empty description (synthesizing from features or benefit overview if source jumps directly to benefits)
+    tickCheck();
+    const rawDesc = typeof data.description === 'string' ? data.description.trim() : '';
+    if (!rawDesc) {
+      const featureNames = data.features.map((f: any) => f?.name).filter(Boolean);
+      const synthesizedDesc = featureNames.length > 0
+        ? `You gain the following benefits: ${featureNames.join(', ')}.`
+        : 'You gain the following benefits:';
+      coercedFields.push({
+        path: 'description',
+        original: data.description,
+        coerced: synthesizedDesc,
+        reason: 'Synthesized non-empty feat description from features for schema compliance'
+      });
+      data.description = synthesizedDesc;
+    } else {
+      data.description = rawDesc;
+    }
 
     if (data.translations && typeof data.translations === 'object') {
-      for (const loc of Object.values(data.translations) as any[]) {
+      for (const [locKey, loc] of Object.entries(data.translations) as [string, any][]) {
         if (loc && typeof loc === 'object') {
           if (loc.preRequisite !== undefined) {
             if (loc.prerequisite === undefined) {
@@ -1651,11 +1673,25 @@ export class PropertyValidator {
             }
             delete loc.preRequisite;
           }
+          const rawLocDesc = typeof loc.description === 'string' ? loc.description.trim() : '';
+          if (!rawLocDesc) {
+            const locFeatureNames = Array.isArray(loc.features)
+              ? loc.features.map((f: any) => f?.name).filter(Boolean)
+              : [];
+            const isPt = locKey.toLowerCase().startsWith('pt');
+            const fallbackPrefix = isPt ? 'Você recebe os seguintes benefícios' : 'You gain the following benefits';
+            loc.description = locFeatureNames.length > 0
+              ? `${fallbackPrefix}: ${locFeatureNames.join(', ')}.`
+              : `${fallbackPrefix}:`;
+          } else {
+            loc.description = rawLocDesc;
+          }
         }
       }
     }
 
     this.ensureBooksArray(data, options, coercedFields, tickCheck);
+    this.resolveSystem(data, options, coercedFields, tickCheck);
     this.ensureEmbeddedTranslation(data, options, ['name', 'description', 'features', 'featType', 'prerequisite'], tickCheck);
   }
 
@@ -1691,7 +1727,7 @@ export class PropertyValidator {
     data.toolProficiency = Array.isArray(data.toolProficiency) ? data.toolProficiency : [];
     data.equipment = Array.isArray(data.equipment) ? data.equipment : [];
     data.features = Array.isArray(data.features) ? data.features : [];
-    data.system = data.system || 'dnd5e';
+    this.resolveSystem(data, options, coercedFields, tickCheck);
 
     this.ensureBooksArray(data, options, coercedFields, tickCheck);
     this.ensureEmbeddedTranslation(data, options, ['name', 'description', 'features'], tickCheck);
@@ -1756,7 +1792,7 @@ export class PropertyValidator {
     data.type = data.isMagical ? 'magic-weapon' : 'weapon';
     data.isMagical = Boolean(data.isMagical);
     data.edition = data.edition || '2024';
-    data.system = data.system || 'dnd5e';
+    this.resolveSystem(data, options, coercedFields, tickCheck);
 
     this.ensureBooksArray(data, options, coercedFields, tickCheck);
     this.ensureEmbeddedTranslation(data, options, ['name', 'description'], tickCheck);
@@ -1813,7 +1849,7 @@ export class PropertyValidator {
     data.type = data.isMagical ? 'magic-armor' : 'armor';
     data.isMagical = Boolean(data.isMagical);
     data.edition = data.edition || '2024';
-    data.system = data.system || 'dnd5e';
+    this.resolveSystem(data, options, coercedFields, tickCheck);
 
     this.ensureBooksArray(data, options, coercedFields, tickCheck);
     this.ensureEmbeddedTranslation(data, options, ['name', 'description'], tickCheck);
@@ -1882,13 +1918,105 @@ export class PropertyValidator {
 
     data.description = typeof data.description === 'string' ? data.description : '';
     data.edition = data.edition || '2024';
-    data.system = data.system || 'dnd5e';
+    this.resolveSystem(data, options, coercedFields, tickCheck);
 
     delete data.rarity;
     delete data.attunement;
 
     this.ensureBooksArray(data, options, coercedFields, tickCheck);
     this.ensureEmbeddedTranslation(data, options, ['name', 'description'], tickCheck);
+  }
+
+  /**
+   * Resolves the "system" and "edition" fields:
+   * 1. If options.system is passed in the request body, strictly echoes/normalizes that value.
+   * 2. If options.defaults?.system is passed, echoes that value.
+   * 3. Detects 2024 content via options.edition === '2024', data.edition === '2024',
+   *    or 2024 book references in books array (e.g. "Player's Handbook 2024", "Monster Manual 2024").
+   *    In 2024 context, legacy strings ("dnd5e", "5e", "D&D 5e") and 5.5e aliases are normalized to "D&D 5.5e".
+   * 4. For 2014 content (edition: '2014' in data or options), defaults to 'D&D 5e (2014)'.
+   * 5. Otherwise for 2024 content (default in this service), defaults strictly to 'D&D 5.5e'.
+   */
+  public static resolveSystem(
+    data: any,
+    options: NormalizeOptions,
+    coercedFields?: CoercedField[],
+    tickCheck?: () => void
+  ): void {
+    if (tickCheck) tickCheck();
+
+    // 1. Check for explicit system requested in options or defaults
+    const requestedSystem =
+      (typeof options.system === 'string' && options.system.trim()) ||
+      (typeof options.defaults?.system === 'string' && options.defaults.system.trim()) ||
+      undefined;
+
+    // 2. Check for explicit edition requested in options, defaults, or data
+    const requestedEdition =
+      (typeof options.edition === 'string' && options.edition.trim()) ||
+      (typeof options.defaults?.edition === 'string' && options.defaults.edition.trim()) ||
+      (typeof data.edition === 'string' && data.edition.trim()) ||
+      undefined;
+
+    // 3. Inspect book references in data.books and options.defaults.books
+    const allBooks: string[] = [
+      ...(Array.isArray(data.books) ? data.books : []),
+      ...(Array.isArray(options.defaults?.books) ? options.defaults.books : [])
+    ].map(b => (typeof b === 'string' ? b : '')).filter(Boolean);
+
+    const has2024Book = allBooks.some(b => /2024|5\.5/i.test(b));
+    const has2014Book = allBooks.some(b => /2014/i.test(b));
+
+    const isExplicit2014 =
+      Boolean(requestedEdition && /2014/i.test(requestedEdition)) ||
+      Boolean(requestedSystem && /2014/i.test(requestedSystem));
+
+    const isExplicit2024 =
+      Boolean(requestedEdition && /2024|5\.5/i.test(requestedEdition)) ||
+      Boolean(requestedSystem && /5\.5|2024/i.test(requestedSystem));
+
+    const is2014Requested = isExplicit2014 || (!isExplicit2024 && has2014Book && !has2024Book);
+    const is2024Requested = !is2014Requested;
+
+    // Determine final edition
+    const edition = is2014Requested ? '2014' : (requestedEdition || '2024');
+    data.edition = edition;
+
+    const originalSystem = data.system;
+    let resolvedSystem: string;
+
+    if (requestedSystem) {
+      if (/^(?:5\.5e?|dnd\s*5\.5e?|d&d\s*5\.5e?|d&d\s*2024|5e-?2024)$/i.test(requestedSystem)) {
+        resolvedSystem = 'D&D 5.5e';
+      } else {
+        resolvedSystem = requestedSystem;
+      }
+    } else if (is2014Requested) {
+      resolvedSystem = 'D&D 5e (2014)';
+    } else {
+      // Default / 2024 mode:
+      const currentSys = typeof data.system === 'string' ? data.system.trim() : '';
+      const isLegacy5e = /^(?:dnd5e|dnd\s*5e|5e|d&d\s*5e|d&d\s*5th\s*edition|5th\s*edition|d&d\s*5e\s*\(2014\))$/i.test(currentSys);
+      const is55Variant = /^(?:5\.5e?|dnd\s*5\.5e?|d&d\s*5\.5e?|d&d\s*2024|5e-?2024)$/i.test(currentSys);
+
+      if (!currentSys || isLegacy5e || is55Variant) {
+        resolvedSystem = 'D&D 5.5e';
+      } else {
+        resolvedSystem = currentSys;
+      }
+    }
+
+    if (originalSystem !== resolvedSystem) {
+      if (coercedFields && originalSystem !== undefined) {
+        coercedFields.push({
+          path: 'system',
+          original: originalSystem,
+          coerced: resolvedSystem,
+          reason: 'Normalized system to edition naming convention'
+        });
+      }
+      data.system = resolvedSystem;
+    }
   }
 
   private static ensureBooksArray(
@@ -1898,7 +2026,10 @@ export class PropertyValidator {
     tickCheck: () => void
   ) {
     tickCheck();
-    const defaultBook = options.defaults?.books?.[0] || (options.template === 'monster' ? 'Monster Manual 2024' : "Player's Handbook 2024");
+    const is2014 = options.edition === '2014' || data.edition === '2014' || (typeof options.system === 'string' && /2014/i.test(options.system));
+    const defaultBook = options.defaults?.books?.[0] || (is2014
+      ? (options.template === 'monster' ? 'Monster Manual (2014)' : "Player's Handbook (2014)")
+      : (options.template === 'monster' ? 'Monster Manual 2024' : "Player's Handbook 2024"));
     if (!Array.isArray(data.books) || data.books.length === 0) {
       data.books = [defaultBook];
       coercedFields.push({

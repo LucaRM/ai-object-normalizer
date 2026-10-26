@@ -20,7 +20,8 @@ export const SPELL_TEMPLATE = {
   ritual: false,
   concentration: false,
   books: ["Player's Handbook 2024"],
-  system: 'dnd5e',
+  edition: '2024',
+  system: 'D&D 5.5e',
   translations: {
     'pt-BR': {
       name: 'Bola de Fogo',
@@ -52,7 +53,8 @@ export const SPELL_PROMPT_GUIDE = `### SPECIAL INSTRUCTIONS FOR D&D SPELLS:
 9. ritual: Boolean, true if the spell has the ritual tag.
 10. damageType: Primary damage type (e.g. 'fire', 'radiant', 'necrotic', 'cold') or null if no damage.
 11. atHigherLevels: Text describing higher-level upcasting benefits, if applicable.
-12. classes: Array of class names that have this spell on their list (e.g. ["Sorcerer", "Wizard"]).`;
+12. classes: Array of class names that have this spell on their list (e.g. ["Sorcerer", "Wizard"]).
+13. edition: "2024", system: "D&D 5.5e".`;
 
 export const SPELL_EXAMPLE_PARAGRAPH = `Fireball
 3rd-level Evocation

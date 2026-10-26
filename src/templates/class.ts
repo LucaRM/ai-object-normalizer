@@ -127,7 +127,8 @@ export const CLASS_TEMPLATE = {
     }
   ],
   books: ["Player's Handbook 2024"],
-  system: 'dnd5e',
+  edition: '2024',
+  system: 'D&D 5.5e',
   translations: {
     'pt-BR': {
       name: 'Guerreiro',
@@ -167,7 +168,8 @@ export const CLASS_PROMPT_GUIDE = `### SPECIAL INSTRUCTIONS FOR D&D CLASSES:
 3. traits: Also populate the traits object containing hitDie, primaryAbility, savingThrowProficiencies, armorProficiencies, weaponProficiencies for backward compatibility.
 4. spellcasting: Set spellcastingType to 'none', 'full', 'half', 'third', or 'pact'. Set spellcastingAbility to 'Intelligence', 'Wisdom', 'Charisma', or null.
 5. levelProgression: Array of level objects [{ level: number, proficiencyBonus: number, features: ClassFeature[] }].
-   Category must be one of: ['Class Feature', 'Combat', 'Utility', 'Spellcasting', 'Active', 'Passive'].`;
+   Category must be one of: ['Class Feature', 'Combat', 'Utility', 'Spellcasting', 'Active', 'Passive'].
+6. edition: "2024", system: "D&D 5.5e".`;
 
 export const CLASS_EXAMPLE_PARAGRAPH = `Fighter
 Primary Ability: Strength or Dexterity

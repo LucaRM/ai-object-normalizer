@@ -44,7 +44,8 @@ export const SUBCLASS_TEMPLATE = {
     }
   ],
   books: ["Player's Handbook 2024"],
-  system: 'dnd5e',
+  edition: '2024',
+  system: 'D&D 5.5e',
   translations: {
     'pt-BR': {
       name: 'Campeão',
@@ -111,7 +112,8 @@ export const SUBCLASS_PROMPT_GUIDE = `### SPECIAL INSTRUCTIONS FOR D&D SUBCLASSE
 7. SUBCLASS SPELLCASTING (e.g. Eldritch Knight, Arcane Trickster): If the subclass grants spellcasting to a non-spellcasting class, populate:
    - spellcasting: { spellcastingAbility: "Intelligence", spellcastingType: "known" }
 8. If the subclass grants bonus spells (e.g. Domain spells, Oath spells, Circle spells), extract them into spellList array using spell NAMES (e.g. [{ level: 3, spells: ["Bless", "Cure Wounds"] }]).
-9. books: Array of source book names (e.g. ["Player's Handbook 2024"]).`;
+9. books: Array of source book names (e.g. ["Player's Handbook 2024"]).
+10. edition: "2024", system: "D&D 5.5e".`;
 
 export const SUBCLASS_EXAMPLE_PARAGRAPH = `Champion
 Fighter Subclass

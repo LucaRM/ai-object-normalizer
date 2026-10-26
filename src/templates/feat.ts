@@ -28,7 +28,8 @@ export const FEAT_TEMPLATE = {
     }
   ],
   books: ["Player's Handbook 2024"],
-  system: 'dnd5e',
+  edition: '2024',
+  system: 'D&D 5.5e',
   translations: {
     'pt-BR': {
       name: 'Mestre em Armas Grandes',
@@ -69,7 +70,9 @@ export const FEAT_PROMPT_GUIDE = `### SPECIAL INSTRUCTIONS FOR D&D FEATS:
 3. repeatable: Boolean, true only if explicitly stated that the feat can be taken multiple times.
 4. abilityScoreIncrease: If the feat provides an ability score increase, populate { abilities: string[], amount: number, choice?: boolean }.
 5. features: Break down each distinct benefit / bullet point into the features array with { name, description, category }.
-   Category must be one of: ['Combat', 'Utility', 'Spellcasting', 'Skills', 'Active', 'Passive'].`;
+   Category must be one of: ['Combat', 'Utility', 'Spellcasting', 'Skills', 'Active', 'Passive'].
+6. description: General introductory overview of the feat. CRITICAL: If the source text jumps directly into named benefits or bullet points without an introductory paragraph (e.g., Grappler, Dual Wielder), populate description with an introductory sentence such as "You gain the following benefits:". NEVER leave description empty.
+7. edition: "2024", system: "D&D 5.5e".`;
 
 export const FEAT_EXAMPLE_PARAGRAPH = `Great Weapon Master
 General Feat (Prerequisite: Level 4+, Strength 13+)
