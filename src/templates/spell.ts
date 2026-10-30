@@ -103,7 +103,40 @@ Extract the optional structured 'mechanics' field if the spell has attacks, save
   { characterLevels: [5, 11, 17], perStep: { effectDice: [{ effectId: 'main', count: 1, die: <die> }], attackRolls?: 1 } }
 
 If the spell does not involve attack rolls, saving throws, damage, or healing (e.g. Light, Alarm), set:
-"mechanics": { "version": 1 }`;
+"mechanics": { "version": 1 }
+
+ACTIVE EFFECT EXTRACTION:
+If the spell alters a creature or caster over a duration (buffs, debuffs, stances, AC bonuses, saving throw/attack advantage/disadvantage, roll bonus dice like Bless/Bane, temp HP, movement speed, or applied conditions like Paralyzed/Invisible/Frightened):
+Extract the structured 'activeEffect' field:
+- 'version': 1
+- 'appliesTo': 'self' (only caster affected) | 'creature' (can affect another creature or target)
+- 'duration': { 'unit': 'round'|'minute'|'hour'|'day'|'untilDispelled'|'untilStartOfNextTurn'|'special', 'amount'?: number }
+- 'concentration': boolean (must match the spell's concentration)
+- 'endsWhen'?: optional array of events: ['donsArmor' | 'takesDamage' | 'attacksOrCasts' | 'savesSucceeds' | 'dropsTo0Hp']
+- 'repeatSave'?: if repeated save ends it: { 'ability': 'WIS'|'CON'|..., 'when': 'endOfTurn'|'startOfTurn'|'whenDamaged' }
+- 'modifiers': array of exact modifier types:
+  - AC bonus: { "type": "ac", "mode": "bonus", "value": 2 } (Haste +2, Shield of Faith +2)
+  - AC set base: { "type": "ac", "mode": "setBase", "value": 13, "addAbility": "DEX", "requiresNoArmor": true } (Mage Armor)
+  - AC minimum: { "type": "ac", "mode": "minimum", "value": 17 } (2024 Barkskin)
+  - Advantage / Disadvantage: { "type": "rollMode", "mode": "advantage"|"disadvantage", "roll": "attack"|"save"|"check"|"initiative", "abilities"?: ["DEX"], "against"?: true }
+  - Roll Bonus / Penalty: { "type": "rollBonus", "roll": "attack"|"save", "abilities"?: "all"|["DEX"], "dice"?: { "count": 1, "die": 4 }, "sign"?: 1|-1, "value"?: -2 }
+  - Speed: { "type": "speed", "mode": "multiply"|"bonus"|"set", "value": 2|10|0, "movement"?: "all"|"fly"|"climb" }
+  - Max HP: { "type": "hpMax", "value": 5, "alsoCurrent": true } (Aid)
+  - Temp HP: { "type": "tempHp", "value"?: 5, "dice"?: { "count": 2, "die": 4 }, "addSpellcastingModifier"?: true, "when"?: "onApply"|"startOfTurn" }
+  - Defenses: { "type": "resistance"|"immunity", "damageTypes": ["psychic"] | { "fromChoice": "type" } }
+  - Condition Immunity: { "type": "conditionImmunity", "conditions": ["frightened", "charmed"] }
+  - Condition Applied: { "type": "applyCondition", "condition": "paralyzed"|"invisible"|"frightened" }
+  - Damage Bonus: { "type": "damageBonus", "dice": { "count": 1, "die": 4 }, "damageType": "radiant", "on": "weaponHit" }
+  - Extra Action: { "type": "extraAction", "actions": ["attackOneWeapon", "dash", "disengage", "hide", "utilize"] }
+  - Restrictions: { "type": "restriction", "what": "noReactions"|"actionOrBonusAction"|"oneAttack"|"noActions"|"noMovement"|"noSpeech"|"cantConcentrate" }
+  - Senses: { "type": "sense", "sense": "darkvision"|"seeInvisible", "range"?: 60 }
+- 'perSlotAbove'?: for spells with scaling bonuses (Aid: +5 HP max per slot above 2):
+  { "modifiers": [{ "type": "hpMax", "value": 5, "alsoCurrent": true }] }
+- 'afterEnd'?: for spells with post-effect penalties (Haste lethargy):
+  { "duration": { "unit": "round", "amount": 1 }, "modifiers": [{ "type": "restriction", "what": "noMovement" }, { "type": "restriction", "what": "noActions" }] }
+
+CRITICAL RULE: If a rule cannot be expressed with these exact 16 modifier types, DO NOT approximate it. Leave that modifier out of the array and let the spell description handle it.
+If the spell is instantaneous and only deals damage/healing (e.g. Fireball, Cure Wounds), omit 'activeEffect'.`;
 
 
 export const SPELL_EXAMPLE_PARAGRAPH = `Fireball

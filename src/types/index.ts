@@ -320,3 +320,116 @@ export type FeatureMaxUses =
       subclassSourceId?: string;
     };
 
+// ==========================================
+// 3. SPELL ACTIVE EFFECT
+// ==========================================
+export type ActiveEffectDurationUnit =
+  | 'round'
+  | 'minute'
+  | 'hour'
+  | 'day'
+  | 'untilDispelled'
+  | 'untilStartOfNextTurn'
+  | 'special';
+
+export interface ActiveEffectDuration {
+  unit: ActiveEffectDurationUnit;
+  amount?: number;
+}
+
+export type ActiveEffectEndEvent =
+  | 'donsArmor'
+  | 'takesDamage'
+  | 'attacksOrCasts'
+  | 'savesSucceeds'
+  | 'dropsTo0Hp';
+
+export interface ActiveEffectRepeatSave {
+  ability: Ability;
+  when: 'endOfTurn' | 'startOfTurn' | 'whenDamaged';
+}
+
+export type ActiveEffectModifier =
+  | { type: 'ac'; mode: 'bonus'; value: number }
+  | { type: 'ac'; mode: 'setBase'; value: number; addAbility?: 'DEX' | Ability; requiresNoArmor?: boolean }
+  | { type: 'ac'; mode: 'minimum'; value: number }
+  | {
+      type: 'rollMode';
+      mode: 'advantage' | 'disadvantage';
+      roll: 'attack' | 'save' | 'check' | 'initiative';
+      abilities?: Ability[];
+      against?: boolean;
+    }
+  | {
+      type: 'rollBonus';
+      roll: 'attack' | 'save';
+      abilities?: 'all' | Ability[];
+      dice?: { count: number; die: SpellDie };
+      sign?: 1 | -1;
+      value?: number;
+    }
+  | {
+      type: 'speed';
+      mode: 'multiply' | 'bonus' | 'set';
+      value: number;
+      movement?: 'all' | 'fly' | 'climb';
+    }
+  | { type: 'hpMax'; value: number; alsoCurrent?: boolean }
+  | {
+      type: 'tempHp';
+      value?: number;
+      dice?: { count: number; die: SpellDie };
+      addSpellcastingModifier?: boolean;
+      when?: 'onApply' | 'startOfTurn';
+    }
+  | {
+      type: 'resistance' | 'immunity';
+      damageTypes: DamageType[] | { fromChoice: string };
+    }
+  | { type: 'conditionImmunity'; conditions: string[] }
+  | { type: 'applyCondition'; condition: string }
+  | {
+      type: 'damageBonus';
+      dice: { count: number; die: SpellDie };
+      damageType?: DamageType;
+      on?: 'weaponHit' | string;
+    }
+  | {
+      type: 'extraAction';
+      actions: Array<'attackOneWeapon' | 'dash' | 'disengage' | 'hide' | 'utilize'>;
+    }
+  | {
+      type: 'restriction';
+      what:
+        | 'noReactions'
+        | 'actionOrBonusAction'
+        | 'oneAttack'
+        | 'noActions'
+        | 'noMovement'
+        | 'noSpeech'
+        | 'cantConcentrate';
+    }
+  | {
+      type: 'sense';
+      sense: 'darkvision' | 'seeInvisible' | string;
+      range?: number;
+    };
+
+export interface SpellActiveEffect {
+  version: 1;
+  appliesTo: 'self' | 'creature';
+  duration: ActiveEffectDuration;
+  concentration: boolean;
+  endsWhen?: ActiveEffectEndEvent[];
+  repeatSave?: ActiveEffectRepeatSave;
+  modifiers: ActiveEffectModifier[];
+  perSlotAbove?: {
+    modifiers: ActiveEffectModifier[];
+  };
+  afterEnd?: {
+    duration: ActiveEffectDuration;
+    modifiers: ActiveEffectModifier[];
+  };
+}
+
+

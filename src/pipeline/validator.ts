@@ -15,7 +15,13 @@ import {
   RechargeDie,
   RechargeAmount,
   HigherLevelRule,
-  CantripScaling
+  CantripScaling,
+  SpellActiveEffect,
+  ActiveEffectDuration,
+  ActiveEffectModifier,
+  ActiveEffectDurationUnit,
+  ActiveEffectEndEvent,
+  ActiveEffectRepeatSave
 } from '../types';
 import { ObjectIdHelper } from './objectId';
 import { MonsterStatExtractor } from './monsterExtractor';
@@ -683,6 +689,16 @@ export class PropertyValidator {
     } else {
       data.mechanics = PropertyValidator.synthesizeSpellMechanics(data);
     }
+
+    tickCheck();
+    if (data.activeEffect) {
+      data.activeEffect = PropertyValidator.validateActiveEffect(data.activeEffect, data);
+    } else {
+      const syn = PropertyValidator.synthesizeActiveEffect(data);
+      if (syn) {
+        data.activeEffect = syn;
+      }
+    }
   }
 
   /**
@@ -968,6 +984,500 @@ export class PropertyValidator {
     }
 
     return mechanics;
+  }
+
+  /**
+   * Validates a single ActiveEffectModifier against the 16 exact allowed types.
+   * If a modifier cannot be expressed with these exact forms, it is rejected (returns undefined).
+   */
+  public static validateActiveEffectModifier(mod: any): ActiveEffectModifier | undefined {
+    if (!mod || typeof mod !== 'object') return undefined;
+    const type = String(mod.type || '').trim();
+
+    // 1. AC: bonus | setBase | minimum
+    if (type === 'ac') {
+      const mode = String(mod.mode || '').trim();
+      const val = typeof mod.value === 'number' ? mod.value : parseInt(String(mod.value), 10);
+      if (isNaN(val)) return undefined;
+
+      if (mode === 'bonus') {
+        return { type: 'ac', mode: 'bonus', value: val };
+      }
+      if (mode === 'setBase') {
+        const abStr = mod.addAbility ? String(mod.addAbility).toUpperCase().trim() : undefined;
+        const validAbilities: Ability[] = ['STR', 'DEX', 'CON', 'INT', 'WIS', 'CHA'];
+        const addAbility = abStr && validAbilities.includes(abStr as Ability) ? (abStr as Ability) : undefined;
+        return {
+          type: 'ac',
+          mode: 'setBase',
+          value: val,
+          ...(addAbility ? { addAbility } : {}),
+          ...(mod.requiresNoArmor ? { requiresNoArmor: true } : {})
+        };
+      }
+      if (mode === 'minimum') {
+        return { type: 'ac', mode: 'minimum', value: val };
+      }
+      return undefined;
+    }
+
+    // 2. rollMode: advantage | disadvantage
+    if (type === 'rollMode') {
+      const mode = String(mod.mode || '').toLowerCase().trim();
+      if (mode !== 'advantage' && mode !== 'disadvantage') return undefined;
+      const roll = String(mod.roll || '').toLowerCase().trim();
+      const validRolls = ['attack', 'save', 'check', 'initiative'];
+      if (!validRolls.includes(roll)) return undefined;
+
+      const res: any = { type: 'rollMode', mode, roll };
+      if (Array.isArray(mod.abilities) && mod.abilities.length > 0) {
+        res.abilities = mod.abilities
+          .map((a: any) => String(a).toUpperCase().trim())
+          .filter((a: string) => ['STR', 'DEX', 'CON', 'INT', 'WIS', 'CHA'].includes(a));
+      }
+      if (mod.against) res.against = true;
+      return res as ActiveEffectModifier;
+    }
+
+    // 3. rollBonus
+    if (type === 'rollBonus') {
+      const roll = String(mod.roll || '').toLowerCase().trim();
+      if (roll !== 'attack' && roll !== 'save') return undefined;
+      const res: any = { type: 'rollBonus', roll };
+
+      if (mod.abilities === 'all') {
+        res.abilities = 'all';
+      } else if (Array.isArray(mod.abilities) && mod.abilities.length > 0) {
+        res.abilities = mod.abilities
+          .map((a: any) => String(a).toUpperCase().trim())
+          .filter((a: string) => ['STR', 'DEX', 'CON', 'INT', 'WIS', 'CHA'].includes(a));
+      }
+
+      if (mod.dice && typeof mod.dice === 'object') {
+        const count = typeof mod.dice.count === 'number' && mod.dice.count > 0 ? Math.floor(mod.dice.count) : 1;
+        const die = typeof mod.dice.die === 'number' ? mod.dice.die : 4;
+        const validDice: SpellDie[] = [4, 6, 8, 10, 12, 20];
+        res.dice = { count, die: validDice.includes(die as SpellDie) ? (die as SpellDie) : 4 };
+      }
+
+      if (mod.sign === 1 || mod.sign === -1) {
+        res.sign = mod.sign;
+      }
+      if (typeof mod.value === 'number' && !isNaN(mod.value)) {
+        res.value = mod.value;
+      }
+      return res as ActiveEffectModifier;
+    }
+
+    // 4. speed: multiply | bonus | set
+    if (type === 'speed') {
+      const mode = String(mod.mode || '').toLowerCase().trim();
+      if (!['multiply', 'bonus', 'set'].includes(mode)) return undefined;
+      const val = typeof mod.value === 'number' ? mod.value : parseInt(String(mod.value), 10);
+      if (isNaN(val)) return undefined;
+
+      const res: any = { type: 'speed', mode, value: val };
+      if (mod.movement && ['all', 'fly', 'climb'].includes(String(mod.movement).toLowerCase())) {
+        res.movement = String(mod.movement).toLowerCase();
+      }
+      return res as ActiveEffectModifier;
+    }
+
+    // 5. hpMax
+    if (type === 'hpMax') {
+      const val = typeof mod.value === 'number' ? mod.value : parseInt(String(mod.value), 10);
+      if (isNaN(val)) return undefined;
+      return {
+        type: 'hpMax',
+        value: val,
+        ...(mod.alsoCurrent ? { alsoCurrent: true } : {})
+      };
+    }
+
+    // 6. tempHp
+    if (type === 'tempHp') {
+      const res: any = { type: 'tempHp' };
+      if (typeof mod.value === 'number' && !isNaN(mod.value)) res.value = mod.value;
+      if (mod.dice && typeof mod.dice === 'object') {
+        const count = typeof mod.dice.count === 'number' && mod.dice.count > 0 ? Math.floor(mod.dice.count) : 1;
+        const die = typeof mod.dice.die === 'number' ? mod.dice.die : 4;
+        const validDice: SpellDie[] = [4, 6, 8, 10, 12, 20];
+        res.dice = { count, die: validDice.includes(die as SpellDie) ? (die as SpellDie) : 4 };
+      }
+      if (mod.addSpellcastingModifier) res.addSpellcastingModifier = true;
+      if (mod.when === 'onApply' || mod.when === 'startOfTurn') res.when = mod.when;
+      return res as ActiveEffectModifier;
+    }
+
+    // 7. resistance | immunity
+    if (type === 'resistance' || type === 'immunity') {
+      const validDamageTypes: DamageType[] = [
+        'acid', 'bludgeoning', 'cold', 'fire', 'force', 'lightning', 'necrotic',
+        'piercing', 'poison', 'psychic', 'radiant', 'slashing', 'thunder'
+      ];
+      if (Array.isArray(mod.damageTypes)) {
+        const filtered = mod.damageTypes
+          .map((d: any) => String(d).toLowerCase().trim())
+          .filter((d: string) => validDamageTypes.includes(d as DamageType));
+        if (filtered.length > 0) {
+          return { type, damageTypes: filtered as DamageType[] };
+        }
+      } else if (mod.damageTypes && typeof mod.damageTypes === 'object' && mod.damageTypes.fromChoice) {
+        return { type, damageTypes: { fromChoice: String(mod.damageTypes.fromChoice) } };
+      }
+      return undefined;
+    }
+
+    // 8. conditionImmunity
+    if (type === 'conditionImmunity') {
+      if (Array.isArray(mod.conditions) && mod.conditions.length > 0) {
+        return {
+          type: 'conditionImmunity',
+          conditions: mod.conditions.map((c: any) => String(c).toLowerCase().trim()).filter(Boolean)
+        };
+      }
+      return undefined;
+    }
+
+    // 9. applyCondition
+    if (type === 'applyCondition') {
+      const cond = String(mod.condition || '').toLowerCase().trim();
+      if (!cond) return undefined;
+      return { type: 'applyCondition', condition: cond };
+    }
+
+    // 10. damageBonus
+    if (type === 'damageBonus') {
+      if (!mod.dice || typeof mod.dice !== 'object') return undefined;
+      const count = typeof mod.dice.count === 'number' && mod.dice.count > 0 ? Math.floor(mod.dice.count) : 1;
+      const die = typeof mod.dice.die === 'number' ? mod.dice.die : 4;
+      const validDice: SpellDie[] = [4, 6, 8, 10, 12, 20];
+      const validDamageTypes: DamageType[] = [
+        'acid', 'bludgeoning', 'cold', 'fire', 'force', 'lightning', 'necrotic',
+        'piercing', 'poison', 'psychic', 'radiant', 'slashing', 'thunder'
+      ];
+      const res: any = {
+        type: 'damageBonus',
+        dice: { count, die: validDice.includes(die as SpellDie) ? (die as SpellDie) : 4 }
+      };
+      if (mod.damageType && validDamageTypes.includes(String(mod.damageType).toLowerCase().trim() as DamageType)) {
+        res.damageType = String(mod.damageType).toLowerCase().trim() as DamageType;
+      }
+      if (mod.on) res.on = String(mod.on).trim();
+      return res as ActiveEffectModifier;
+    }
+
+    // 11. extraAction
+    if (type === 'extraAction') {
+      const validActions = ['attackOneWeapon', 'dash', 'disengage', 'hide', 'utilize'];
+      if (Array.isArray(mod.actions)) {
+        const filtered = mod.actions
+          .map((a: any) => String(a).trim())
+          .filter((a: string) => validActions.includes(a));
+        if (filtered.length > 0) {
+          return { type: 'extraAction', actions: filtered as any };
+        }
+      }
+      return undefined;
+    }
+
+    // 12. restriction
+    if (type === 'restriction') {
+      const validRestrictions = [
+        'noReactions', 'actionOrBonusAction', 'oneAttack', 'noActions',
+        'noMovement', 'noSpeech', 'cantConcentrate'
+      ];
+      const what = String(mod.what || '').trim();
+      if (validRestrictions.includes(what)) {
+        return { type: 'restriction', what: what as any };
+      }
+      return undefined;
+    }
+
+    // 13. sense
+    if (type === 'sense') {
+      const sense = String(mod.sense || '').trim();
+      if (!sense) return undefined;
+      const res: any = { type: 'sense', sense };
+      if (typeof mod.range === 'number' && mod.range > 0) res.range = mod.range;
+      return res as ActiveEffectModifier;
+    }
+
+    return undefined;
+  }
+
+  /**
+   * Validates and normalizes structured SpellActiveEffect matching luca-app data contracts
+   */
+  public static validateActiveEffect(raw: any, spellData?: any): SpellActiveEffect | undefined {
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined;
+
+    const appliesTo = raw.appliesTo === 'self' ? 'self' : 'creature';
+    const concentration = raw.concentration !== undefined
+      ? Boolean(raw.concentration)
+      : Boolean(spellData?.concentration);
+
+    // duration
+    let duration: ActiveEffectDuration = { unit: 'special' };
+    const validUnits: ActiveEffectDurationUnit[] = [
+      'round', 'minute', 'hour', 'day', 'untilDispelled', 'untilStartOfNextTurn', 'special'
+    ];
+    if (raw.duration && typeof raw.duration === 'object') {
+      const u = String(raw.duration.unit || '').trim();
+      const unit = validUnits.includes(u as any) ? (u as ActiveEffectDurationUnit) : 'special';
+      const amount = typeof raw.duration.amount === 'number' && raw.duration.amount > 0
+        ? Math.floor(raw.duration.amount)
+        : undefined;
+      duration = { unit, ...(amount !== undefined ? { amount } : {}) };
+    } else if (spellData?.duration) {
+      duration = PropertyValidator.parseDurationToActiveEffectDuration(spellData.duration);
+    }
+
+    // modifiers
+    const rawModifiers = Array.isArray(raw.modifiers) ? raw.modifiers : [];
+    const modifiers: ActiveEffectModifier[] = [];
+    for (const m of rawModifiers) {
+      const validated = PropertyValidator.validateActiveEffectModifier(m);
+      if (validated) modifiers.push(validated);
+    }
+
+    if (modifiers.length === 0) {
+      return undefined;
+    }
+
+    const effect: SpellActiveEffect = {
+      version: 1,
+      appliesTo,
+      duration,
+      concentration,
+      modifiers
+    };
+
+    // endsWhen
+    const validEndsWhen: ActiveEffectEndEvent[] = [
+      'donsArmor', 'takesDamage', 'attacksOrCasts', 'savesSucceeds', 'dropsTo0Hp'
+    ];
+    if (Array.isArray(raw.endsWhen)) {
+      const filtered = raw.endsWhen
+        .map((e: any) => String(e).trim())
+        .filter((e: string) => validEndsWhen.includes(e as any));
+      if (filtered.length > 0) {
+        effect.endsWhen = filtered as ActiveEffectEndEvent[];
+      }
+    }
+
+    // repeatSave
+    if (raw.repeatSave && typeof raw.repeatSave === 'object') {
+      const abStr = String(raw.repeatSave.ability || '').toUpperCase().slice(0, 3) as Ability;
+      const validAbilities: Ability[] = ['STR', 'DEX', 'CON', 'INT', 'WIS', 'CHA'];
+      const ability = validAbilities.includes(abStr) ? abStr : 'WIS';
+      const whenStr = String(raw.repeatSave.when || '').trim();
+      const validWhen = ['endOfTurn', 'startOfTurn', 'whenDamaged'];
+      const when = validWhen.includes(whenStr) ? (whenStr as any) : 'endOfTurn';
+      effect.repeatSave = { ability, when };
+    }
+
+    // perSlotAbove
+    if (raw.perSlotAbove && typeof raw.perSlotAbove === 'object' && Array.isArray(raw.perSlotAbove.modifiers)) {
+      const perSlotMods: ActiveEffectModifier[] = [];
+      for (const m of raw.perSlotAbove.modifiers) {
+        const val = PropertyValidator.validateActiveEffectModifier(m);
+        if (val) perSlotMods.push(val);
+      }
+      if (perSlotMods.length > 0) {
+        effect.perSlotAbove = { modifiers: perSlotMods };
+      }
+    }
+
+    // afterEnd
+    if (raw.afterEnd && typeof raw.afterEnd === 'object' && Array.isArray(raw.afterEnd.modifiers)) {
+      const afterMods: ActiveEffectModifier[] = [];
+      for (const m of raw.afterEnd.modifiers) {
+        const val = PropertyValidator.validateActiveEffectModifier(m);
+        if (val) afterMods.push(val);
+      }
+      if (afterMods.length > 0) {
+        let afterDur: ActiveEffectDuration = { unit: 'round', amount: 1 };
+        if (raw.afterEnd.duration && typeof raw.afterEnd.duration === 'object') {
+          const u = String(raw.afterEnd.duration.unit || '').trim();
+          const unit = validUnits.includes(u as any) ? (u as ActiveEffectDurationUnit) : 'round';
+          const amount = typeof raw.afterEnd.duration.amount === 'number' ? Math.floor(raw.afterEnd.duration.amount) : 1;
+          afterDur = { unit, amount };
+        }
+        effect.afterEnd = { duration: afterDur, modifiers: afterMods };
+      }
+    }
+
+    return effect;
+  }
+
+  /**
+   * Helper to parse spell duration string to structured ActiveEffectDuration
+   */
+  public static parseDurationToActiveEffectDuration(durationStr: string): ActiveEffectDuration {
+    const s = String(durationStr || '').toLowerCase().trim();
+    if (/\buntil\s+dispelled\b/i.test(s)) return { unit: 'untilDispelled' };
+    if (/\bstart\s+of\s+next\s+turn\b/i.test(s)) return { unit: 'untilStartOfNextTurn' };
+
+    const roundMatch = s.match(/(\d+)\s+round/i);
+    if (roundMatch) return { unit: 'round', amount: parseInt(roundMatch[1], 10) };
+    if (/\b1\s+round\b/i.test(s)) return { unit: 'round', amount: 1 };
+
+    const minMatch = s.match(/(\d+)\s+minute/i);
+    if (minMatch) return { unit: 'minute', amount: parseInt(minMatch[1], 10) };
+
+    const hourMatch = s.match(/(\d+)\s+hour/i);
+    if (hourMatch) return { unit: 'hour', amount: parseInt(hourMatch[1], 10) };
+
+    const dayMatch = s.match(/(\d+)\s+day/i);
+    if (dayMatch) return { unit: 'day', amount: parseInt(dayMatch[1], 10) };
+
+    return { unit: 'special' };
+  }
+
+  /**
+   * Deterministically synthesizes ActiveEffect for standard spells if model omitted activeEffect
+   */
+  public static synthesizeActiveEffect(spellData: any): SpellActiveEffect | undefined {
+    if (!spellData || typeof spellData !== 'object') return undefined;
+
+    const name = String(spellData.name || '').toLowerCase().trim();
+    const desc = String(spellData.description || '');
+    const durationStr = String(spellData.duration || '');
+    const isInstantaneous = /\binstantaneous\b/i.test(durationStr);
+
+    // If instantaneous and not a special stance, omit activeEffect
+    if (isInstantaneous && !/\buntil\s+the\s+start\s+of\s+your\s+next\s+turn\b/i.test(desc)) {
+      return undefined;
+    }
+
+    const duration = PropertyValidator.parseDurationToActiveEffectDuration(durationStr);
+    const concentration = Boolean(spellData.concentration);
+
+    // 1. Mage Armor
+    if (name === 'mage armor' || (/\bbase\s+AC\s+becomes\s+13\s*\+\s*its\s+Dexterity\s+modifier\b/i.test(desc))) {
+      return {
+        version: 1,
+        appliesTo: 'creature',
+        duration: duration.unit !== 'special' ? duration : { unit: 'hour', amount: 8 },
+        concentration: false,
+        endsWhen: ['donsArmor'],
+        modifiers: [
+          { type: 'ac', mode: 'setBase', value: 13, addAbility: 'DEX', requiresNoArmor: true }
+        ]
+      };
+    }
+
+    // 2. Shield of Faith
+    if (name === 'shield of faith' || (/\b\+2\s+bonus\s+to\s+AC\b/i.test(desc) && concentration && /\b10\s+minutes?\b/i.test(durationStr))) {
+      return {
+        version: 1,
+        appliesTo: 'creature',
+        duration: duration.unit !== 'special' ? duration : { unit: 'minute', amount: 10 },
+        concentration: true,
+        modifiers: [
+          { type: 'ac', mode: 'bonus', value: 2 }
+        ]
+      };
+    }
+
+    // 3. Barkskin
+    if (name === 'barkskin' || /\bAC\s+can't\s+be\s+less\s+than\s+17\b/i.test(desc)) {
+      return {
+        version: 1,
+        appliesTo: 'creature',
+        duration: duration.unit !== 'special' ? duration : { unit: 'hour', amount: 1 },
+        concentration: true,
+        modifiers: [
+          { type: 'ac', mode: 'minimum', value: 17 }
+        ]
+      };
+    }
+
+    // 4. Aid
+    if (name === 'aid' || /\bHit\s+Point\s+maximum\s+(?:and\s+current\s+Hit\s+Points\s+)?increase\s+by\s+5\b/i.test(desc)) {
+      return {
+        version: 1,
+        appliesTo: 'creature',
+        duration: duration.unit !== 'special' ? duration : { unit: 'hour', amount: 8 },
+        concentration: false,
+        modifiers: [
+          { type: 'hpMax', value: 5, alsoCurrent: true }
+        ],
+        perSlotAbove: {
+          modifiers: [
+            { type: 'hpMax', value: 5, alsoCurrent: true }
+          ]
+        }
+      };
+    }
+
+    // 5. Bless
+    if (name === 'bless' || /\badd\s+1d4\s+to\s+(?:the\s+)?attack\s+roll\s+or\s+saving\s+throw\b/i.test(desc)) {
+      return {
+        version: 1,
+        appliesTo: 'creature',
+        duration: duration.unit !== 'special' ? duration : { unit: 'minute', amount: 1 },
+        concentration: true,
+        modifiers: [
+          { type: 'rollBonus', roll: 'attack', dice: { count: 1, die: 4 } },
+          { type: 'rollBonus', roll: 'save', dice: { count: 1, die: 4 } }
+        ]
+      };
+    }
+
+    // 6. Bane
+    if (name === 'bane' || /\bsubtract\s+1d4\s+from\s+(?:the\s+)?attack\s+roll\s+or\s+saving\s+throw\b/i.test(desc)) {
+      return {
+        version: 1,
+        appliesTo: 'creature',
+        duration: duration.unit !== 'special' ? duration : { unit: 'minute', amount: 1 },
+        concentration: true,
+        modifiers: [
+          { type: 'rollBonus', roll: 'attack', dice: { count: 1, die: 4 }, sign: -1 },
+          { type: 'rollBonus', roll: 'save', dice: { count: 1, die: 4 }, sign: -1 }
+        ]
+      };
+    }
+
+    // 7. Haste
+    if (name === 'haste' || (/\bspeed\s+is\s+doubled\b/i.test(desc) && /\b\+2\s+bonus\s+to\s+AC\b/i.test(desc))) {
+      return {
+        version: 1,
+        appliesTo: 'creature',
+        duration: duration.unit !== 'special' ? duration : { unit: 'minute', amount: 1 },
+        concentration: true,
+        modifiers: [
+          { type: 'speed', mode: 'multiply', value: 2 },
+          { type: 'ac', mode: 'bonus', value: 2 },
+          { type: 'rollMode', mode: 'advantage', roll: 'save', abilities: ['DEX'] },
+          { type: 'extraAction', actions: ['attackOneWeapon', 'dash', 'disengage', 'hide', 'utilize'] }
+        ],
+        afterEnd: {
+          duration: { unit: 'round', amount: 1 },
+          modifiers: [
+            { type: 'restriction', what: 'noMovement' },
+            { type: 'restriction', what: 'noActions' }
+          ]
+        }
+      };
+    }
+
+    // 8. Invisibility
+    if (name === 'invisibility' || (/\bbecomes\s+Invisible\b/i.test(desc) && /\battacks\s+or\s+casts\s+a\s+spell\b/i.test(desc))) {
+      return {
+        version: 1,
+        appliesTo: 'creature',
+        duration: duration.unit !== 'special' ? duration : { unit: 'hour', amount: 1 },
+        concentration: true,
+        endsWhen: ['attacksOrCasts'],
+        modifiers: [
+          { type: 'applyCondition', condition: 'invisible' }
+        ]
+      };
+    }
+
+    return undefined;
   }
 
   /**
