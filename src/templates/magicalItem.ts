@@ -26,12 +26,15 @@ export const MAGICAL_ITEM_TEMPLATE = {
       type: 'active',
       actionType: 'bonus action',
       saveDC: null,
-      saveAbility: null
+      saveAbility: null,
+      maxUses: null,
+      usesRecharge: null
     }
   ],
   maxCharges: 0,
   chargeResetOn: 'Never',
   chargeRegeneration: null,
+  usesRecharge: null,
   books: ["Dungeon Master's Guide 2024"],
   edition: '2024',
   system: 'D&D 5.5e',
@@ -90,10 +93,18 @@ export const MAGICAL_ITEM_PROMPT_GUIDE = `### SPECIAL INSTRUCTIONS FOR MAGICAL I
    - saveAbility: Ability score for saving throw in lowercase ('strength' | 'dexterity' | 'constitution' | 'intelligence' | 'wisdom' | 'charisma'), otherwise null.
    - usesPerDay: Number if limited uses per day (e.g. 1 for 1/day).
    - charges: Charge cost to activate.
-9. Charge Management (Wands, Staffs, Charged Items):
+   - maxUses: Static number or formula object ({ type: "proficiencyBonus" }) if feature has limited uses.
+   - usesRecharge: Structured trigger recovery object ({ "longRest": "all" }, { "shortRest": "all" }, { "dawn": "all" }, etc.).
+9. Charge Management & Uses Recharge (Wands, Staffs, Charged Items):
    - maxCharges: Integer (e.g. 7 for Wand of Magic Missiles, 10 for Staff of the Woodlands, or 0 if no charges).
-   - chargeResetOn: If the text mentions charges recharging daily at dawn, set to 'Dawn'. If dusk, 'Dusk'. If long rest, 'Long Rest'. If short rest, 'Short Rest'. If charges do not recharge, 'Never'.
-   - chargeRegeneration: String describing recharge rate (e.g. "1d6 + 1 at dawn" or "1d6 + 1 expended charges daily at dawn").
+   - chargeResetOn: 'dawn' | 'dusk' | 'shortRest' | 'longRest' | 'Never'.
+   - chargeRegeneration: Raw text describing recharge rate (e.g. "1d6 + 1 expended charges daily at dawn" or "regains 1 charge daily at dawn").
+   - usesRecharge: Structured recharge trigger object:
+     * { "dawn": { "dice": { "count": 1, "die": 6 }, "flat": 1 } } for 1d6 + 1 at dawn
+     * { "dawn": "all" } for regains all charges at dawn
+     * { "dawn": 1 } for 1 charge daily at dawn
+     * { "longRest": "all" } for regains all charges on a long rest
+     * { "shortRest": "all" } for short rest recovery
 10. Base Weapon & Armor Extraction:
    - If the item is a weapon, extract baseItem from parentheses (e.g. "Weapon (dagger)" -> baseItem: "Dagger", damage: "1d4", damageType: "piercing", properties: ["Finesse", "Light", "Thrown"]). Do NOT default to Greatsword unless it is actually a greatsword.
 11. edition: "2024", system: "D&D 5.5e".`;

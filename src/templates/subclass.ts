@@ -113,7 +113,21 @@ export const SUBCLASS_PROMPT_GUIDE = `### SPECIAL INSTRUCTIONS FOR D&D SUBCLASSE
    - spellcasting: { spellcastingAbility: "Intelligence", spellcastingType: "known" }
 8. If the subclass grants bonus spells (e.g. Domain spells, Oath spells, Circle spells), extract them into spellList array using spell NAMES (e.g. [{ level: 3, spells: ["Bless", "Cure Wounds"] }]).
 9. books: Array of source book names (e.g. ["Player's Handbook 2024"]).
-10. edition: "2024", system: "D&D 5.5e".`;
+10. edition: "2024", system: "D&D 5.5e".
+
+FEATURE LIMITED USES & RECHARGE:
+For each feature in 'features':
+If the feature can only be used a limited number of times before recharging:
+- 'maxUses':
+  - Static number: 1, 2, 3...
+  - Proficiency bonus: { "type": "proficiencyBonus" }
+  - Ability modifier: { "type": "abilityModifier", "ability": "charisma" | "strength" | ..., "minimum": 1 }
+  - Level-based: { "type": "classLevel", "multiplier": 1 } or { "type": "characterLevel" }
+- 'usesRecharge':
+  - Short rest: { "shortRest": "all" } or { "shortRest": 1, "longRest": "all" }
+  - Long rest only: { "longRest": "all" }
+  - Dawn: { "dawn": "all" } or { "dawn": 1 }
+If the feature is passive (e.g. Darkvision, unarmored defense), omit 'maxUses' and 'usesRecharge'.`;
 
 export const SUBCLASS_EXAMPLE_PARAGRAPH = `Champion
 Fighter Subclass

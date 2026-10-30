@@ -14,6 +14,39 @@ export const SPELL_TEMPLATE = {
     materialsDescription: 'a tiny ball of bat guano and sulfur'
   },
   damageType: 'fire',
+  mechanics: {
+    version: 1,
+    save: {
+      ability: 'DEX',
+      onSuccess: 'half'
+    },
+    effects: [
+      {
+        id: 'main',
+        kind: 'damage',
+        dice: { count: 8, die: 6 },
+        damageType: 'fire',
+        when: 'onFailedSave'
+      }
+    ],
+    area: {
+      shape: 'sphere',
+      size: 20
+    },
+    higherLevels: {
+      aboveLevel: 3,
+      every: 1,
+      perStep: {
+        effectDice: [
+          {
+            effectId: 'main',
+            count: 1,
+            die: 6
+          }
+        ]
+      }
+    }
+  },
   description: 'A bright streak flashes from your pointing finger to a point you choose within range and then blossoms with a low roar into an explosion of flame. Each creature in a 20-foot-radius sphere centered on that point must make a Dexterity saving throw. A target takes 8d6 fire damage on a failed save, or half as much damage on a successful one.\n\nThe fire spreads around corners. It ignites flammable objects in the area that aren’t being worn or carried.',
   atHigherLevels: 'When you cast this spell using a spell slot of 4th level or higher, the damage increases by 1d6 for each slot level above 3rd.',
   classes: ['Sorcerer', 'Wizard'],
@@ -54,7 +87,24 @@ export const SPELL_PROMPT_GUIDE = `### SPECIAL INSTRUCTIONS FOR D&D SPELLS:
 10. damageType: Primary damage type (e.g. 'fire', 'radiant', 'necrotic', 'cold') or null if no damage.
 11. atHigherLevels: Text describing higher-level upcasting benefits, if applicable.
 12. classes: Array of class names that have this spell on their list (e.g. ["Sorcerer", "Wizard"]).
-13. edition: "2024", system: "D&D 5.5e".`;
+13. edition: "2024", system: "D&D 5.5e".
+
+MECHANICS INSTRUCTIONS:
+Extract the optional structured 'mechanics' field if the spell has attacks, saves, damage, healing, or level scaling:
+- 'version': 1
+- 'attack': if spell attack roll, specify { kind: 'melee' | 'ranged', rolls: number (e.g. 1, Scorching Ray: 3) }
+- 'save': if targets make a saving throw, specify { ability: 'STR'|'DEX'|'CON'|'INT'|'WIS'|'CHA', onSuccess: 'half'|'none'|'other' }
+- 'effects': array of { id: 'main', kind: 'damage'|'healing'|'tempHp'|'maxHp', dice: { count: X, die: Y }, flat?: Z, addSpellcastingModifier?: true, damageType: 'fire'|'acid'|..., when: 'onHit'|'onFailedSave'|'onCast' }
+- 'targets': if specified count, { count: N, kind: 'creature'|'object'|'point'|'self', upTo?: boolean }
+- 'area': if AoE, { shape: 'cone'|'cube'|'cylinder'|'emanation'|'line'|'sphere', size: number }
+- 'higherLevels': for leveled spells when cast with a higher slot:
+  { aboveLevel: <spell level>, every: 1, perStep: { effectDice?: [{ effectId: 'main', count: 1, die: 6 }], targets?: 1, attackRolls?: 1, flat?: [{ effectId: 'main', amount: 5 }] } }
+- 'cantripScaling': for cantrips (level 0):
+  { characterLevels: [5, 11, 17], perStep: { effectDice: [{ effectId: 'main', count: 1, die: <die> }], attackRolls?: 1 } }
+
+If the spell does not involve attack rolls, saving throws, damage, or healing (e.g. Light, Alarm), set:
+"mechanics": { "version": 1 }`;
+
 
 export const SPELL_EXAMPLE_PARAGRAPH = `Fireball
 3rd-level Evocation

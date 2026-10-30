@@ -221,3 +221,102 @@ export interface ProviderInfo {
   cooldownUntil?: string;
   isValid?: boolean;
 }
+
+// ==========================================
+// 1. SPELL MECHANICS
+// ==========================================
+export type Ability = 'STR' | 'DEX' | 'CON' | 'INT' | 'WIS' | 'CHA';
+export type DamageType =
+  | 'acid' | 'bludgeoning' | 'cold' | 'fire' | 'force' | 'lightning' | 'necrotic'
+  | 'piercing' | 'poison' | 'psychic' | 'radiant' | 'slashing' | 'thunder';
+export type SpellDie = 4 | 6 | 8 | 10 | 12 | 20;
+
+export interface SpellMechanics {
+  version: 1;
+  attack?: { kind: 'melee' | 'ranged'; rolls: number };
+  save?: { ability: Ability; onSuccess: 'half' | 'none' | 'other' };
+  effects?: SpellEffect[];
+  targets?: { count: number; kind: 'creature' | 'object' | 'point' | 'self'; upTo?: boolean };
+  area?: { shape: 'cone' | 'cube' | 'cylinder' | 'emanation' | 'line' | 'sphere'; size: number };
+  higherLevels?: HigherLevelRule;
+  cantripScaling?: CantripScaling;
+}
+
+export interface SpellEffect {
+  id: string; // 'main', 'secondary', 'ongoing', 'explosion', etc.
+  kind: 'damage' | 'healing' | 'tempHp' | 'maxHp';
+  dice?: { count: number; die: SpellDie };
+  flat?: number;
+  addSpellcastingModifier?: boolean;
+  damageType?: DamageType;
+  when?: 'onCast' | 'onHit' | 'onFailedSave' | 'startOfTurn' | 'endOfTurn' | 'other';
+}
+
+export interface HigherLevelRule {
+  aboveLevel: number;
+  every?: number;
+  perStep?: {
+    effectDice?: { effectId: string; count: number; die: SpellDie }[];
+    flat?: { effectId: string; amount: number }[];
+    targets?: number;
+    attackRolls?: number;
+    areaSize?: number;
+  };
+  atLevel?: { level: number; duration?: string; concentration?: boolean }[];
+}
+
+export interface CantripScaling {
+  characterLevels: number[]; // [5, 11, 17]
+  perStep: {
+    effectDice?: { effectId: string; count: number; die: SpellDie }[];
+    attackRolls?: number;
+  };
+}
+
+// ==========================================
+// 2. USES RECHARGE & MAX USES (Items & Features)
+// ==========================================
+export type RechargeDie = 2 | 3 | 4 | 6 | 8 | 10 | 12 | 20;
+
+export interface DiceRecharge {
+  dice: { count: number; die: RechargeDie };
+  flat?: number;
+}
+
+export type RechargeAmount = 'all' | 'none' | number | DiceRecharge;
+
+export interface UsesRecharge {
+  shortRest?: RechargeAmount;
+  longRest?: RechargeAmount;
+  dawn?: RechargeAmount;
+  dusk?: RechargeAmount;
+  fromLevel?: {
+    level: number;
+    scope: 'class' | 'character';
+    recharge: {
+      shortRest?: RechargeAmount;
+      longRest?: RechargeAmount;
+      dawn?: RechargeAmount;
+      dusk?: RechargeAmount;
+    };
+  }[];
+}
+
+export type FeatureMaxUses =
+  | number
+  | { type: 'static'; value: number }
+  | { type: 'proficiencyBonus'; multiplier?: number }
+  | {
+      type: 'abilityModifier';
+      ability: 'strength' | 'dexterity' | 'constitution' | 'intelligence' | 'wisdom' | 'charisma' | 'spellcasting';
+      multiplier?: number;
+      minimum?: number;
+    }
+  | { type: 'characterLevel'; multiplier?: number }
+  | {
+      type: 'classLevel';
+      multiplier?: number;
+      classSourceId?: string;
+      subclassSourceId?: string;
+    };
+

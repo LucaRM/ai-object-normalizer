@@ -31,7 +31,12 @@ export const CLASS_TEMPLATE = {
       name: 'Second Wind',
       description: 'You have a limited well of stamina that you can draw on to protect yourself from harm. On your turn, you can use a Bonus Action to regain Hit Points equal to 1d10 plus your Fighter level.',
       category: 'Combat',
-      classLevel: 1
+      classLevel: 1,
+      maxUses: 2,
+      usesRecharge: {
+        shortRest: 1,
+        longRest: 'all'
+      }
     },
     {
       name: 'Weapon Mastery',
@@ -85,7 +90,12 @@ export const CLASS_TEMPLATE = {
           name: 'Second Wind',
           description: 'You have a limited well of stamina that you can draw on to protect yourself from harm. On your turn, you can use a Bonus Action to regain Hit Points equal to 1d10 plus your Fighter level.',
           category: 'Combat',
-          classLevel: 1
+          classLevel: 1,
+          maxUses: 2,
+          usesRecharge: {
+            shortRest: 1,
+            longRest: 'all'
+          }
         },
         {
           name: 'Weapon Mastery',
@@ -169,7 +179,21 @@ export const CLASS_PROMPT_GUIDE = `### SPECIAL INSTRUCTIONS FOR D&D CLASSES:
 4. spellcasting: Set spellcastingType to 'none', 'full', 'half', 'third', or 'pact'. Set spellcastingAbility to 'Intelligence', 'Wisdom', 'Charisma', or null.
 5. levelProgression: Array of level objects [{ level: number, proficiencyBonus: number, features: ClassFeature[] }].
    Category must be one of: ['Class Feature', 'Combat', 'Utility', 'Spellcasting', 'Active', 'Passive'].
-6. edition: "2024", system: "D&D 5.5e".`;
+6. edition: "2024", system: "D&D 5.5e".
+
+FEATURE LIMITED USES & RECHARGE:
+For each feature in 'features':
+If the feature can only be used a limited number of times before recharging:
+- 'maxUses':
+  - Static number: 1, 2, 3...
+  - Proficiency bonus: { "type": "proficiencyBonus" }
+  - Ability modifier: { "type": "abilityModifier", "ability": "charisma" | "strength" | ..., "minimum": 1 }
+  - Level-based: { "type": "classLevel", "multiplier": 1 } or { "type": "characterLevel" }
+- 'usesRecharge':
+  - Short rest: { "shortRest": "all" } or { "shortRest": 1, "longRest": "all" }
+  - Long rest only: { "longRest": "all" }
+  - Dawn: { "dawn": "all" } or { "dawn": 1 }
+If the feature is passive (e.g. Darkvision, unarmored defense), omit 'maxUses' and 'usesRecharge'.`;
 
 export const CLASS_EXAMPLE_PARAGRAPH = `Fighter
 Primary Ability: Strength or Dexterity

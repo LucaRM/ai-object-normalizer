@@ -4,7 +4,18 @@ import {
   CoercedField,
   EntityRelation,
   NormalizerError,
-  ErrorType
+  ErrorType,
+  SpellMechanics,
+  UsesRecharge,
+  FeatureMaxUses,
+  SpellEffect,
+  Ability,
+  DamageType,
+  SpellDie,
+  RechargeDie,
+  RechargeAmount,
+  HigherLevelRule,
+  CantripScaling
 } from '../types';
 import { ObjectIdHelper } from './objectId';
 import { MonsterStatExtractor } from './monsterExtractor';
@@ -665,6 +676,470 @@ export class PropertyValidator {
 
     this.ensureBooksArray(data, options, coercedFields, tickCheck);
     this.ensureEmbeddedTranslation(data, options, ['name', 'description', 'atHigherLevels'], tickCheck);
+
+    tickCheck();
+    if (data.mechanics) {
+      data.mechanics = PropertyValidator.validateSpellMechanics(data.mechanics);
+    } else {
+      data.mechanics = PropertyValidator.synthesizeSpellMechanics(data);
+    }
+  }
+
+  /**
+   * Validates and normalizes structured spell mechanics matching luca-app data contracts
+   */
+  public static validateSpellMechanics(raw: any): SpellMechanics | undefined {
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined;
+
+    const mechanics: SpellMechanics = { version: 1 };
+
+    // attack?: { kind: 'melee' | 'ranged'; rolls: number }
+    if (raw.attack && typeof raw.attack === 'object') {
+      const kindLower = String(raw.attack.kind || '').toLowerCase().trim();
+      const kind = kindLower === 'melee' ? 'melee' : 'ranged';
+      const rolls = typeof raw.attack.rolls === 'number' && raw.attack.rolls > 0
+        ? Math.floor(raw.attack.rolls)
+        : 1;
+      mechanics.attack = { kind, rolls };
+    }
+
+    // save?: { ability: Ability; onSuccess: 'half' | 'none' | 'other' }
+    if (raw.save && typeof raw.save === 'object') {
+      const abStr = String(raw.save.ability || '').toUpperCase().trim();
+      let ability: Ability = 'DEX';
+      if (['STR', 'DEX', 'CON', 'INT', 'WIS', 'CHA'].includes(abStr)) {
+        ability = abStr as Ability;
+      } else if (abStr.startsWith('STR')) ability = 'STR';
+      else if (abStr.startsWith('DEX')) ability = 'DEX';
+      else if (abStr.startsWith('CON')) ability = 'CON';
+      else if (abStr.startsWith('INT')) ability = 'INT';
+      else if (abStr.startsWith('WIS')) ability = 'WIS';
+      else if (abStr.startsWith('CHA')) ability = 'CHA';
+
+      const succStr = String(raw.save.onSuccess || '').toLowerCase().trim();
+      let onSuccess: 'half' | 'none' | 'other' = 'half';
+      if (succStr.includes('none') || succStr === 'no') onSuccess = 'none';
+      else if (succStr.includes('half')) onSuccess = 'half';
+      else onSuccess = 'other';
+
+      mechanics.save = { ability, onSuccess };
+    }
+
+    // effects?: SpellEffect[]
+    if (Array.isArray(raw.effects)) {
+      const validKinds = ['damage', 'healing', 'tempHp', 'maxHp'];
+      const validDamageTypes: DamageType[] = [
+        'acid', 'bludgeoning', 'cold', 'fire', 'force', 'lightning', 'necrotic',
+        'piercing', 'poison', 'psychic', 'radiant', 'slashing', 'thunder'
+      ];
+      const validWhen = ['onCast', 'onHit', 'onFailedSave', 'startOfTurn', 'endOfTurn', 'other'];
+
+      const effects: SpellEffect[] = [];
+      for (const eff of raw.effects) {
+        if (!eff || typeof eff !== 'object') continue;
+        const kind = validKinds.includes(eff.kind) ? eff.kind : 'damage';
+        const id = typeof eff.id === 'string' && eff.id.trim() ? eff.id.trim() : 'main';
+        const effectObj: SpellEffect = { id, kind };
+
+        if (eff.dice && typeof eff.dice === 'object') {
+          const count = typeof eff.dice.count === 'number' && eff.dice.count > 0 ? Math.floor(eff.dice.count) : 1;
+          const dieNum = typeof eff.dice.die === 'number' ? eff.dice.die : parseInt(String(eff.dice.die).replace(/\D+/g, ''), 10);
+          const validDice: SpellDie[] = [4, 6, 8, 10, 12, 20];
+          const die = validDice.includes(dieNum as SpellDie) ? (dieNum as SpellDie) : 6;
+          effectObj.dice = { count, die };
+        }
+
+        if (typeof eff.flat === 'number' && !isNaN(eff.flat)) {
+          effectObj.flat = eff.flat;
+        }
+
+        if (eff.addSpellcastingModifier) {
+          effectObj.addSpellcastingModifier = true;
+        }
+
+        if (eff.damageType && typeof eff.damageType === 'string') {
+          const dtLower = eff.damageType.toLowerCase().trim() as DamageType;
+          if (validDamageTypes.includes(dtLower)) {
+            effectObj.damageType = dtLower;
+          }
+        }
+
+        if (eff.when && typeof eff.when === 'string') {
+          const w = eff.when.trim();
+          if (validWhen.includes(w)) {
+            effectObj.when = w as any;
+          } else {
+            effectObj.when = 'other';
+          }
+        }
+
+        effects.push(effectObj);
+      }
+      if (effects.length > 0) {
+        mechanics.effects = effects;
+      }
+    }
+
+    // targets?: { count: number; kind: 'creature' | 'object' | 'point' | 'self'; upTo?: boolean }
+    if (raw.targets && typeof raw.targets === 'object') {
+      const validKinds = ['creature', 'object', 'point', 'self'];
+      const kindStr = String(raw.targets.kind || '').toLowerCase().trim();
+      const kind = validKinds.includes(kindStr) ? (kindStr as any) : 'creature';
+      const count = typeof raw.targets.count === 'number' && raw.targets.count > 0 ? Math.floor(raw.targets.count) : 1;
+      mechanics.targets = {
+        count,
+        kind,
+        ...(raw.targets.upTo ? { upTo: true } : {})
+      };
+    }
+
+    // area?: { shape: 'cone' | 'cube' | 'cylinder' | 'emanation' | 'line' | 'sphere'; size: number }
+    if (raw.area && typeof raw.area === 'object') {
+      const validShapes = ['cone', 'cube', 'cylinder', 'emanation', 'line', 'sphere'];
+      const shapeStr = String(raw.area.shape || '').toLowerCase().trim();
+      const shape = validShapes.includes(shapeStr) ? (shapeStr as any) : 'sphere';
+      const sizeNum = typeof raw.area.size === 'number' ? raw.area.size : parseInt(String(raw.area.size).replace(/\D+/g, ''), 10);
+      const size = !isNaN(sizeNum) && sizeNum > 0 ? sizeNum : 20;
+      mechanics.area = { shape, size };
+    }
+
+    // higherLevels?: HigherLevelRule
+    if (raw.higherLevels && typeof raw.higherLevels === 'object') {
+      const hl: any = {};
+      hl.aboveLevel = typeof raw.higherLevels.aboveLevel === 'number' ? Math.floor(raw.higherLevels.aboveLevel) : 1;
+      if (typeof raw.higherLevels.every === 'number') hl.every = Math.floor(raw.higherLevels.every);
+      if (raw.higherLevels.perStep && typeof raw.higherLevels.perStep === 'object') {
+        hl.perStep = {};
+        if (Array.isArray(raw.higherLevels.perStep.effectDice)) {
+          hl.perStep.effectDice = raw.higherLevels.perStep.effectDice.map((d: any) => ({
+            effectId: String(d.effectId || 'main'),
+            count: typeof d.count === 'number' ? Math.floor(d.count) : 1,
+            die: typeof d.die === 'number' ? d.die : 6
+          }));
+        }
+        if (Array.isArray(raw.higherLevels.perStep.flat)) {
+          hl.perStep.flat = raw.higherLevels.perStep.flat.map((f: any) => ({
+            effectId: String(f.effectId || 'main'),
+            amount: typeof f.amount === 'number' ? f.amount : 0
+          }));
+        }
+        if (typeof raw.higherLevels.perStep.targets === 'number') hl.perStep.targets = raw.higherLevels.perStep.targets;
+        if (typeof raw.higherLevels.perStep.attackRolls === 'number') hl.perStep.attackRolls = raw.higherLevels.perStep.attackRolls;
+        if (typeof raw.higherLevels.perStep.areaSize === 'number') hl.perStep.areaSize = raw.higherLevels.perStep.areaSize;
+      }
+      if (Array.isArray(raw.higherLevels.atLevel)) {
+        hl.atLevel = raw.higherLevels.atLevel.map((al: any) => ({
+          level: typeof al.level === 'number' ? al.level : 1,
+          ...(al.duration ? { duration: String(al.duration) } : {}),
+          ...(al.concentration !== undefined ? { concentration: Boolean(al.concentration) } : {})
+        }));
+      }
+      mechanics.higherLevels = hl;
+    }
+
+    // cantripScaling?: CantripScaling
+    if (raw.cantripScaling && typeof raw.cantripScaling === 'object') {
+      const cs: any = {
+        characterLevels: Array.isArray(raw.cantripScaling.characterLevels) && raw.cantripScaling.characterLevels.length > 0
+          ? raw.cantripScaling.characterLevels.map((l: any) => Number(l)).filter((n: number) => !isNaN(n))
+          : [5, 11, 17],
+        perStep: {}
+      };
+      if (raw.cantripScaling.perStep && typeof raw.cantripScaling.perStep === 'object') {
+        if (Array.isArray(raw.cantripScaling.perStep.effectDice)) {
+          cs.perStep.effectDice = raw.cantripScaling.perStep.effectDice.map((d: any) => ({
+            effectId: String(d.effectId || 'main'),
+            count: typeof d.count === 'number' ? Math.floor(d.count) : 1,
+            die: typeof d.die === 'number' ? d.die : 6
+          }));
+        }
+        if (typeof raw.cantripScaling.perStep.attackRolls === 'number') {
+          cs.perStep.attackRolls = raw.cantripScaling.perStep.attackRolls;
+        }
+      }
+      mechanics.cantripScaling = cs;
+    }
+
+    return mechanics;
+  }
+
+  /**
+   * Deterministically synthesizes basic SpellMechanics from spell description if model did not extract it
+   */
+  public static synthesizeSpellMechanics(data: any): SpellMechanics {
+    const text = `${data.description || ''} ${data.atHigherLevels || ''}`;
+    const mechanics: SpellMechanics = { version: 1 };
+
+    // Attack
+    if (/\b(?:make\s+a\s+melee\s+spell\s+attack|melee\s+spell\s+attack)\b/i.test(text)) {
+      mechanics.attack = { kind: 'melee', rolls: 1 };
+    } else if (/\b(?:make\s+a\s+ranged\s+spell\s+attack|ranged\s+spell\s+attack)\b/i.test(text)) {
+      const rollsMatch = text.match(/(?:create|make)\s+(\d+)\s+(?:rays|beams|missiles|attacks)/i);
+      const rolls = rollsMatch ? parseInt(rollsMatch[1], 10) : 1;
+      mechanics.attack = { kind: 'ranged', rolls };
+    }
+
+    // Save
+    const saveMatch = text.match(/\b(Strength|Dexterity|Constitution|Intelligence|Wisdom|Charisma|STR|DEX|CON|INT|WIS|CHA)\s+saving\s+throw\b/i);
+    if (saveMatch) {
+      const abStr = saveMatch[1].toUpperCase().slice(0, 3) as Ability;
+      const onSuccess: 'half' | 'none' | 'other' = /\bhalf\s+as\s+much\s+damage\b/i.test(text)
+        ? 'half'
+        : (/\bno\s+effect\b|\btakes\s+no\s+damage\b/i.test(text) ? 'none' : 'other');
+      mechanics.save = { ability: abStr, onSuccess };
+    }
+
+    // Effects
+    const diceMatch = text.match(/(\d+)d(4|6|8|10|12|20)\s+([a-z]+)\s+damage/i);
+    if (diceMatch) {
+      const count = parseInt(diceMatch[1], 10);
+      const die = parseInt(diceMatch[2], 10) as SpellDie;
+      const dt = diceMatch[3].toLowerCase() as DamageType;
+      const validDamageTypes: DamageType[] = [
+        'acid', 'bludgeoning', 'cold', 'fire', 'force', 'lightning', 'necrotic',
+        'piercing', 'poison', 'psychic', 'radiant', 'slashing', 'thunder'
+      ];
+      if (validDamageTypes.includes(dt)) {
+        const when = mechanics.save ? 'onFailedSave' : (mechanics.attack ? 'onHit' : 'onCast');
+        mechanics.effects = [
+          {
+            id: 'main',
+            kind: 'damage',
+            dice: { count, die },
+            damageType: dt,
+            when
+          }
+        ];
+      }
+    } else if (/\bregains?\s+(\d+)d(4|6|8|10|12|20)\s+hit\s+points/i.test(text)) {
+      const healMatch = text.match(/\bregains?\s+(\d+)d(4|6|8|10|12|20)\s+hit\s+points/i);
+      if (healMatch) {
+        const count = parseInt(healMatch[1], 10);
+        const die = parseInt(healMatch[2], 10) as SpellDie;
+        mechanics.effects = [
+          {
+            id: 'main',
+            kind: 'healing',
+            dice: { count, die },
+            when: 'onCast',
+            addSpellcastingModifier: /\bplus\s+your\s+spellcasting\s+ability\s+modifier\b/i.test(text)
+          }
+        ];
+      }
+    }
+
+    // Area
+    const areaMatch = text.match(/(\d+)[- ]foot(?:[- ]radius)?\s+(cone|cube|cylinder|emanation|line|sphere)\b/i);
+    if (areaMatch) {
+      const size = parseInt(areaMatch[1], 10);
+      const shape = areaMatch[2].toLowerCase() as any;
+      mechanics.area = { shape, size };
+    }
+
+    // Higher levels
+    const hlMatch = (data.atHigherLevels || text).match(/damage\s+increases\s+by\s+(\d+)d(4|6|8|10|12|20)\s+for\s+each\s+slot\s+level\s+above\s+(\d+)(?:st|nd|rd|th)/i);
+    if (hlMatch) {
+      const count = parseInt(hlMatch[1], 10);
+      const die = parseInt(hlMatch[2], 10) as SpellDie;
+      const aboveLevel = parseInt(hlMatch[3], 10);
+      mechanics.higherLevels = {
+        aboveLevel,
+        every: 1,
+        perStep: {
+          effectDice: [{ effectId: 'main', count, die }]
+        }
+      };
+    }
+
+    // Cantrip scaling
+    if (data.level === 0) {
+      const cantripMatch = text.match(/damage\s+increases\s+by\s+(\d+)d(4|6|8|10|12|20)\s+when\s+you\s+reach/i) ||
+        text.match(/increases\s+by\s+(\d+)d(4|6|8|10|12|20)\s+at\s+level/i);
+      if (cantripMatch) {
+        const count = parseInt(cantripMatch[1], 10);
+        const die = parseInt(cantripMatch[2], 10) as SpellDie;
+        mechanics.cantripScaling = {
+          characterLevels: [5, 11, 17],
+          perStep: {
+            effectDice: [{ effectId: 'main', count, die }]
+          }
+        };
+      }
+    }
+
+    return mechanics;
+  }
+
+  /**
+   * Validates and normalizes structured UsesRecharge
+   */
+  public static validateUsesRecharge(raw: any): UsesRecharge | undefined {
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined;
+
+    const parseRechargeAmount = (val: any): RechargeAmount | undefined => {
+      if (val === undefined || val === null) return undefined;
+      if (val === 'all' || val === 'none') return val;
+      if (typeof val === 'number' && !isNaN(val)) return Math.max(0, Math.floor(val));
+      if (typeof val === 'string') {
+        const vLower = val.toLowerCase().trim();
+        if (vLower === 'all' || vLower === 'none') return vLower as any;
+        const num = parseInt(vLower, 10);
+        if (!isNaN(num) && /^\d+$/.test(vLower)) return num;
+        const diceMatch = vLower.match(/(\d+)\s*d\s*(\d+)(?:\s*\+\s*(\d+))?/i);
+        if (diceMatch) {
+          const count = parseInt(diceMatch[1], 10) || 1;
+          const die = (parseInt(diceMatch[2], 10) || 6) as RechargeDie;
+          const flat = diceMatch[3] ? parseInt(diceMatch[3], 10) : undefined;
+          return { dice: { count, die }, ...(flat !== undefined ? { flat } : {}) };
+        }
+      }
+      if (typeof val === 'object' && val.dice && typeof val.dice === 'object') {
+        const count = typeof val.dice.count === 'number' ? Math.max(1, Math.floor(val.dice.count)) : 1;
+        const dieNum = typeof val.dice.die === 'number' ? val.dice.die : 6;
+        const validDice: RechargeDie[] = [2, 3, 4, 6, 8, 10, 12, 20];
+        const die = validDice.includes(dieNum as RechargeDie) ? (dieNum as RechargeDie) : 6;
+        const flat = typeof val.flat === 'number' && !isNaN(val.flat) ? val.flat : undefined;
+        return { dice: { count, die }, ...(flat !== undefined ? { flat } : {}) };
+      }
+      return undefined;
+    };
+
+    const result: UsesRecharge = {};
+    let hasKeys = false;
+
+    for (const key of ['shortRest', 'longRest', 'dawn', 'dusk'] as const) {
+      if (raw[key] !== undefined) {
+        const parsed = parseRechargeAmount(raw[key]);
+        if (parsed !== undefined) {
+          result[key] = parsed;
+          hasKeys = true;
+        }
+      }
+    }
+
+    if (Array.isArray(raw.fromLevel)) {
+      const flList: any[] = [];
+      for (const fl of raw.fromLevel) {
+        if (!fl || typeof fl !== 'object') continue;
+        const level = typeof fl.level === 'number' ? fl.level : 1;
+        const scope = fl.scope === 'character' ? 'character' : 'class';
+        const rObj: any = {};
+        if (fl.recharge && typeof fl.recharge === 'object') {
+          for (const key of ['shortRest', 'longRest', 'dawn', 'dusk'] as const) {
+            if (fl.recharge[key] !== undefined) {
+              const p = parseRechargeAmount(fl.recharge[key]);
+              if (p !== undefined) rObj[key] = p;
+            }
+          }
+        }
+        flList.push({ level, scope, recharge: rObj });
+      }
+      if (flList.length > 0) {
+        result.fromLevel = flList;
+        hasKeys = true;
+      }
+    }
+
+    return hasKeys ? result : undefined;
+  }
+
+  /**
+   * Validates and normalizes feature maxUses
+   */
+  public static validateFeatureMaxUses(raw: any): FeatureMaxUses | undefined {
+    if (raw === undefined || raw === null) return undefined;
+    if (typeof raw === 'number' && !isNaN(raw)) {
+      return Math.max(1, Math.floor(raw));
+    }
+    if (typeof raw === 'string') {
+      const parsed = parseInt(raw, 10);
+      if (!isNaN(parsed) && /^\d+$/.test(raw.trim())) {
+        return Math.max(1, parsed);
+      }
+    }
+    if (typeof raw === 'object' && !Array.isArray(raw)) {
+      const type = String(raw.type || '').trim();
+      const validTypes = ['static', 'proficiencyBonus', 'abilityModifier', 'characterLevel', 'classLevel'];
+      if (!validTypes.includes(type)) return undefined;
+
+      const res: any = { type };
+      if (type === 'static') {
+        res.value = typeof raw.value === 'number' ? Math.floor(raw.value) : 1;
+      } else if (type === 'proficiencyBonus') {
+        if (typeof raw.multiplier === 'number') res.multiplier = raw.multiplier;
+      } else if (type === 'abilityModifier') {
+        const validAbilities = ['strength', 'dexterity', 'constitution', 'intelligence', 'wisdom', 'charisma', 'spellcasting'];
+        const ab = String(raw.ability || '').toLowerCase().trim();
+        res.ability = validAbilities.includes(ab) ? ab : 'charisma';
+        if (typeof raw.multiplier === 'number') res.multiplier = raw.multiplier;
+        if (typeof raw.minimum === 'number') res.minimum = raw.minimum;
+      } else if (type === 'characterLevel' || type === 'classLevel') {
+        if (typeof raw.multiplier === 'number') res.multiplier = raw.multiplier;
+        if (raw.classSourceId) res.classSourceId = String(raw.classSourceId);
+        if (raw.subclassSourceId) res.subclassSourceId = String(raw.subclassSourceId);
+      }
+      return res as FeatureMaxUses;
+    }
+    return undefined;
+  }
+
+  /**
+   * Validates and enriches feature-level mechanics (maxUses & usesRecharge)
+   */
+  public static validateFeatureMechanics(feature: any): any {
+    if (!feature || typeof feature !== 'object') return feature;
+    const f = { ...feature };
+    const rawName = String(f.name || '').trim();
+    const rawDesc = String(f.description || '').trim();
+    const text = `${rawName} ${rawDesc}`;
+
+    // 1. maxUses validation / inference
+    if (f.maxUses !== undefined && f.maxUses !== null) {
+      const validated = PropertyValidator.validateFeatureMaxUses(f.maxUses);
+      if (validated !== undefined) {
+        f.maxUses = validated;
+      }
+    } else {
+      if (/(?:number\s+of\s+times\s+equal\s+to\s+your\s+Proficiency\s+Bonus|times\s+equal\s+to\s+your\s+PB)/i.test(text)) {
+        f.maxUses = { type: 'proficiencyBonus' };
+      } else {
+        const abModMatch = text.match(/equal\s+to\s+your\s+(Strength|Dexterity|Constitution|Intelligence|Wisdom|Charisma)\s+modifier(?:\s*\(minimum\s+of\s+(\d+)\))?/i);
+        if (abModMatch) {
+          const ab = abModMatch[1].toLowerCase() as any;
+          const min = abModMatch[2] ? parseInt(abModMatch[2], 10) : 1;
+          f.maxUses = { type: 'abilityModifier', ability: ab, minimum: min };
+        } else if (/\bonce\s+per\s+(?:long\s+rest|short\s+rest|day|dawn)\b/i.test(text) || /\byou\s+can\s+use\s+this\s+(?:feature|trait)\s+once\b/i.test(text)) {
+          f.maxUses = 1;
+        }
+      }
+    }
+
+    // 2. usesRecharge validation / inference
+    if (f.usesRecharge !== undefined && f.usesRecharge !== null) {
+      const validated = PropertyValidator.validateUsesRecharge(f.usesRecharge);
+      if (validated !== undefined) {
+        f.usesRecharge = validated;
+      }
+    } else {
+      if (
+        f.usesResetOn === 'short rest' ||
+        /regain\s+all\s+expended\s+uses\s+when\s+you\s+finish\s+a\s+Short\s+or\s+Long\s+Rest/i.test(text) ||
+        /finish\s+a\s+Short\s+or\s+Long\s+Rest\s+before\s+you\s+can\s+use\s+it\s+again/i.test(text)
+      ) {
+        f.usesRecharge = { shortRest: 'all', longRest: 'all' };
+      } else if (
+        f.usesResetOn === 'long rest' ||
+        /regain\s+all\s+expended\s+uses\s+when\s+you\s+finish\s+a\s+Long\s+Rest/i.test(text) ||
+        /finish\s+a\s+Long\s+Rest\s+before\s+you\s+can\s+use\s+it\s+again/i.test(text) ||
+        /Once\s+per\s+Long\s+Rest/i.test(text)
+      ) {
+        f.usesRecharge = { longRest: 'all' };
+      } else if (/\bdawn\b/i.test(text) && /\bregain/i.test(text)) {
+        f.usesRecharge = { dawn: 'all' };
+      }
+    }
+
+    return f;
   }
 
   /**
@@ -912,17 +1387,45 @@ export class PropertyValidator {
         }
       }
 
-      return {
+      return PropertyValidator.validateFeatureMechanics({
         ...f,
         actionType: actionType || 'passive',
         saveDC: saveDC !== null ? saveDC : null,
         saveAbility: saveAbility || null
-      };
+      });
     });
 
     if (data.maxCharges !== undefined) {
       const chg = parseInt(String(data.maxCharges), 10);
       data.maxCharges = isNaN(chg) ? 0 : chg;
+    }
+
+    // Validate or infer usesRecharge on magical item
+    if (data.usesRecharge) {
+      data.usesRecharge = PropertyValidator.validateUsesRecharge(data.usesRecharge) || null;
+    } else if (data.maxCharges > 0) {
+      const fullDesc = `${data.description || ''} ${data.chargeRegeneration || ''}`;
+      const rLower = String(data.chargeResetOn || '').toLowerCase();
+      let trigger: 'dawn' | 'dusk' | 'shortRest' | 'longRest' = 'dawn';
+      if (rLower.includes('dusk')) trigger = 'dusk';
+      else if (rLower.includes('short')) trigger = 'shortRest';
+      else if (rLower.includes('long')) trigger = 'longRest';
+
+      const diceMatch = (data.chargeRegeneration || fullDesc).match(/(\d+)\s*d\s*(\d+)(?:\s*\+\s*(\d+))?/i);
+      if (diceMatch) {
+        const count = parseInt(diceMatch[1], 10) || 1;
+        const die = (parseInt(diceMatch[2], 10) || 6) as RechargeDie;
+        const flat = diceMatch[3] ? parseInt(diceMatch[3], 10) : undefined;
+        data.usesRecharge = { [trigger]: { dice: { count, die }, ...(flat !== undefined ? { flat } : {}) } };
+      } else if (/\ball\b/i.test(data.chargeRegeneration || '')) {
+        data.usesRecharge = { [trigger]: 'all' };
+      } else if (/\b1\s+charge\b/i.test(data.chargeRegeneration || '')) {
+        data.usesRecharge = { [trigger]: 1 };
+      } else {
+        data.usesRecharge = { [trigger]: 'all' };
+      }
+    } else {
+      data.usesRecharge = null;
     }
 
     this.ensureBooksArray(data, options, coercedFields, tickCheck);
@@ -1276,7 +1779,7 @@ export class PropertyValidator {
       }
     }
 
-    return f;
+    return PropertyValidator.validateFeatureMechanics(f);
   }
 
   private static validateClassProperties(
@@ -1402,13 +1905,25 @@ export class PropertyValidator {
       }
     }
 
+    data.features = data.features.map((f: any) => PropertyValidator.validateFeatureMechanics(f));
+
     tickCheck();
     if (!data.spellcasting || typeof data.spellcasting !== 'object') {
       data.spellcasting = { spellcastingType: 'none', spellcastingAbility: null };
     }
 
     tickCheck();
-    data.levelProgression = Array.isArray(data.levelProgression) ? data.levelProgression : [];
+    data.levelProgression = Array.isArray(data.levelProgression)
+      ? data.levelProgression.map((lp: any) => {
+          if (lp && Array.isArray(lp.features)) {
+            return {
+              ...lp,
+              features: lp.features.map((f: any) => PropertyValidator.validateFeatureMechanics(f))
+            };
+          }
+          return lp;
+        })
+      : [];
     this.resolveSystem(data, options, coercedFields, tickCheck);
 
     this.ensureBooksArray(data, options, coercedFields, tickCheck);
@@ -1559,11 +2074,11 @@ export class PropertyValidator {
         }
       }
 
-      return {
+      return PropertyValidator.validateFeatureMechanics({
         ...f,
         level: lvl || 3,
         actionType
-      };
+      });
     });
 
     // 3. Maneuver Subclasses (e.g. Battle Master)
@@ -1643,7 +2158,9 @@ export class PropertyValidator {
     }
     data.prerequisite = data.prerequisite || 'None';
     data.repeatable = Boolean(data.repeatable);
-    data.features = Array.isArray(data.features) ? data.features : [];
+    data.features = (Array.isArray(data.features) ? data.features : []).map((f: any) =>
+      PropertyValidator.validateFeatureMechanics(f)
+    );
 
     // Ensure non-empty description (synthesizing from features or benefit overview if source jumps directly to benefits)
     tickCheck();

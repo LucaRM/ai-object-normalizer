@@ -72,7 +72,21 @@ export const FEAT_PROMPT_GUIDE = `### SPECIAL INSTRUCTIONS FOR D&D FEATS:
 5. features: Break down each distinct benefit / bullet point into the features array with { name, description, category }.
    Category must be one of: ['Combat', 'Utility', 'Spellcasting', 'Skills', 'Active', 'Passive'].
 6. description: General introductory overview of the feat. CRITICAL: If the source text jumps directly into named benefits or bullet points without an introductory paragraph (e.g., Grappler, Dual Wielder), populate description with an introductory sentence such as "You gain the following benefits:". NEVER leave description empty.
-7. edition: "2024", system: "D&D 5.5e".`;
+7. edition: "2024", system: "D&D 5.5e".
+
+FEATURE LIMITED USES & RECHARGE:
+For each feature in 'features':
+If the feature can only be used a limited number of times before recharging:
+- 'maxUses':
+  - Static number: 1, 2, 3...
+  - Proficiency bonus: { "type": "proficiencyBonus" }
+  - Ability modifier: { "type": "abilityModifier", "ability": "charisma" | "strength" | ..., "minimum": 1 }
+  - Level-based: { "type": "classLevel", "multiplier": 1 } or { "type": "characterLevel" }
+- 'usesRecharge':
+  - Short rest: { "shortRest": "all" } or { "shortRest": 1, "longRest": "all" }
+  - Long rest only: { "longRest": "all" }
+  - Dawn: { "dawn": "all" } or { "dawn": 1 }
+If the feature is passive (e.g. Darkvision, unarmored defense), omit 'maxUses' and 'usesRecharge'.`;
 
 export const FEAT_EXAMPLE_PARAGRAPH = `Great Weapon Master
 General Feat (Prerequisite: Level 4+, Strength 13+)

@@ -140,8 +140,8 @@ export const SPECIES_PROMPT_GUIDE = `### SPECIAL INSTRUCTIONS FOR SPECIES / RACE
    - senses: For Darkvision, Tremorsense, or Blindsight, extract range in feet: { darkvision: 60 } or { darkvision: 120 }, { tremorsense: 60 }.
    - proficiencies: For traits granting skill/tool proficiencies (e.g., Keen Senses: Perception): { skills: ["Perception"] }, { tools: ["Smith's tools"] }.
    - resistances: For damage resistances (e.g., Dwarven Resilience: Poison): ["Poison"], ["Fire"], ["Cold"], etc.
-   - usageLimits / maxUses / sheetResourceStrip: For traits with uses (e.g., Stonecunning: PB times per Long Rest):
-     maxUses: { type: "proficiencyBonus" }, usesResetOn: "long rest", sheetResourceStrip: { enabled: true }.
+   - usageLimits / maxUses / usesRecharge: For traits with uses (e.g., Stonecunning: PB times per Long Rest):
+     maxUses: { type: "proficiencyBonus" }, usesRecharge: { "longRest": "all" }, sheetResourceStrip: { enabled: true }.
    - lineages / sub-species choices: When text says "Choose a lineage: High Elf, Wood Elf, or Drow" or "Choose a dragon ancestor":
      selectable: true, requiresChoice: true, speciesWizardPick: "lineagePick",
      options: [{ id: "high-elf", name: "High Elf", description: "..." }, ...],
@@ -153,7 +153,21 @@ export const SPECIES_PROMPT_GUIDE = `### SPECIAL INSTRUCTIONS FOR SPECIES / RACE
      selectable: true, requiresChoice: true, choiceType: "feat", featFilter: { featType: "Origin" }.
    - spells: For spell choices or at-will spells:
      spellChoice: { count: 1, level: 0, spellList: "Wizard" } or atWillSpell: "Thaumaturgy", atWillRecharge: "atWill".
-9. edition: "2024", system: "D&D 5.5e".`;
+9. edition: "2024", system: "D&D 5.5e".
+
+FEATURE LIMITED USES & RECHARGE:
+For each feature in 'features':
+If the feature can only be used a limited number of times before recharging:
+- 'maxUses':
+  - Static number: 1, 2, 3...
+  - Proficiency bonus: { "type": "proficiencyBonus" }
+  - Ability modifier: { "type": "abilityModifier", "ability": "charisma" | "strength" | ..., "minimum": 1 }
+  - Level-based: { "type": "classLevel", "multiplier": 1 } or { "type": "characterLevel" }
+- 'usesRecharge':
+  - Short rest: { "shortRest": "all" } or { "shortRest": 1, "longRest": "all" }
+  - Long rest only: { "longRest": "all" }
+  - Dawn: { "dawn": "all" } or { "dawn": 1 }
+If the feature is passive (e.g. Darkvision, unarmored defense), omit 'maxUses' and 'usesRecharge'.`;
 
 export const SPECIES_EXAMPLE_PARAGRAPH = `Elf
 Creature Type: Humanoid
