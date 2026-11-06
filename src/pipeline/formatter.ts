@@ -24,6 +24,9 @@ export class ObjectFormatter {
       'climb',
       'cost',
       'level',
+      'classlevel',
+      'maxuses',
+      'extracantrips',
       'basespeed',
       'speed'
     ];

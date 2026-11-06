@@ -8,6 +8,7 @@ import {
   SpellMechanics,
   UsesRecharge,
   FeatureMaxUses,
+  FeatureOption,
   SpellEffect,
   Ability,
   DamageType,
@@ -1593,12 +1594,882 @@ export class PropertyValidator {
     return undefined;
   }
 
+  private static readonly KNOWN_CHOICE_FEATURE_NAMES =
+    /^(?:divine\s+order|ordem\s+divina|primal\s+order|ordem\s+primordial|blessed\s+strikes|golpes\s+abençoados|elemental\s+fury|fúria\s+elemental|hunter['’]?s\s+prey|presa\s+do\s+caçador|defensive\s+tactics|táticas\s+defensivas|rage\s+of\s+the\s+wilds|fúria\s+selvagem|aspect\s+of\s+the\s+wilds|aspecto\s+selvagem|power\s+of\s+the\s+wilds|poder\s+selvagem)$/i;
+
+  private static readonly CHOICE_INTRO_REGEX_EN =
+    /\b(?:(?:dedicated\s+yourself\s+to|gain|choose|select|pick|adopt)\s+one\s+of\s+the\s+following\b|one\s+of\s+the\s+following\s+(?:[a-zA-Z\s]{1,35}?\s+)?(?:of\s+your\s+choice|options?|roles?|orders?|benefits?|feature\s+options?)\b|following\s+(?:sacred\s+roles?|roles?|orders?|options?|benefits?|feature\s+options?)\s+of\s+your\s+choice\b)/i;
+
+  private static readonly CHOICE_INTRO_REGEX_PT =
+    /\b(?:(?:se\s+dedicou\s+a|dedicou-se\s+a|ganha|recebe|escolha|escolhe|selecione)\s+um(?:a)?\s+d(?:os|as)\s+seguintes\b|um(?:a)?\s+d(?:os|as)\s+seguintes\s+(?:[a-zA-ZÀ-ÿ\s]{1,35}?\s+)?(?:de\s+sua\s+escolha|opç(?:ão|ões)|pap(?:el|éis)|ordens?|benefícios?)\b|seguintes\s+(?:papéis\s+sagrados|papéis|ordens|opções|benefícios)\s+de\s+sua\s+escolha\b)/i;
+
+  private static readonly STANDALONE_CLASS_FEATURE_NAMES =
+    /^(?:spellcasting|conjuração|pact\s+magic|magia\s+de\s+pacto|druidic|druídico|weapon\s+mastery|maestria\s+em\s+armas|fighting\s+style|estilo\s+de\s+luta|additional\s+fighting\s+style|second\s+wind|retomar\s+o\s+fôlego|action\s+surge|surto\s+de\s+ação|tactical\s+mind|mente\s+tática|rage|fúria|unarmored\s+defense|defesa\s+sem\s+armadura|danger\s+sense|sentido\s+de\s+perigo|reckless\s+attack|ataque\s+descuidado|primal\s+knowledge|conhecimento\s+primordial|channel\s+divinity|canalizar\s+divindade|turn\s+undead|expulsar\s+mortos-vivos|sear\s+undead|divine\s+intervention|intervenção\s+divina|greater\s+divine\s+intervention|wild\s+shape|forma\s+selvagem|wild\s+companion|companheiro\s+selvagem|wild\s+resurgence|beast\s+spells|archdruid|arquidruida|extra\s+attack|ataque\s+extra|ability\s+score\s+improvement|incremento\s+no\s+valor\s+de\s+habilidade|epic\s+boon|dádiva\s+épica|sneak\s+attack|ataque\s+furtivo|thieves['’]\s+cant|gíria\s+de\s+ladrão|cunning\s+action|ação\s+ardilosa|uncanny\s+dodge|esquiva\s+sobrenatural|evasion|evasão|expertise|especialização|lay\s+on\s+hands|cura\s+pelas\s+mãos|divine\s+smite|destruição\s+divina|font\s+of\s+magic|fonte\s+de\s+magia|metamagic|metamagia|innate\s+sorcery|feitiçaria\s+inata|eldritch\s+invocations|invocações\s+místicas|magical\s+cunning|bardic\s+inspiration|inspiração\s+bárdica|jack\s+of\s+all\s+trades|pau\s+para\s+toda\s+obra|martial\s+arts|artes\s+marciais|monk['’]s\s+focus|foco\s+do\s+monge|uncanny\s+metabolism|favored\s+enemy|inimigo\s+favorito|deft\s+explorer|explorador\s+hábil|[a-zA-ZÀ-ÿ\s]+\s+(?:subclass|subclasse|archetype|arquétipo)|level\s+\d+|nível\s+\d+)$/i;
+
+  private static readonly CANONICAL_PT_BR_FEATURES: Record<string, { name: string; description: string }> = {
+    'divine-order': {
+      name: 'Ordem Divina',
+      description: 'Você se dedicou a um dos seguintes papéis sagrados de sua escolha.'
+    },
+    'primal-order': {
+      name: 'Ordem Primordial',
+      description: 'Você se dedicou a um dos seguintes papéis sagrados de sua escolha.'
+    },
+    'blessed-strikes': {
+      name: 'Golpes Abençoados',
+      description: 'O poder divino infunde você em batalha. Você ganha uma das seguintes opções de sua escolha.'
+    },
+    'elemental-fury': {
+      name: 'Fúria Elemental',
+      description: 'O poder dos elementos flui através de você. Você ganha uma das seguintes opções de sua escolha.'
+    }
+  };
+
+  private static readonly CANONICAL_PT_BR_OPTIONS: Record<string, { name: string; description: string }> = {
+    protector: {
+      name: 'Protetor',
+      description: 'Treinado para a batalha, você ganha proficiência com armas marciais e treina com armaduras pesadas.'
+    },
+    thaumaturge: {
+      name: 'Taumaturgo',
+      description: 'Você conhece um truque extra da lista de magias do Clérigo. Além disso, sua conexão mística com o divino lhe dá um bônus em seus testes de Inteligência (Arcanismo ou Religião). O bônus é igual ao seu modificador de Sabedoria (mínimo de +1).'
+    },
+    magician: {
+      name: 'Mago',
+      description: 'Você conhece um truque extra da lista de magias do Druida. Além disso, sua conexão mística com a natureza lhe dá um bônus em seus testes de Inteligência (Arcanismo ou Natureza). O bônus é igual ao seu modificador de Sabedoria (bônus mínimo de +1).'
+    },
+    warden: {
+      name: 'Guardião',
+      description: 'Treinado para a batalha, você ganha proficiência com armas marciais e treina com armadura média.'
+    },
+    'divine-strike': {
+      name: 'Golpe Divino',
+      description: 'Uma vez em cada um dos seus turnos, quando você acerta uma criatura com uma jogada de ataque usando uma arma, você pode fazer o alvo sofrer 1d8 de dano Necrótico ou Radiante extra (à sua escolha).'
+    },
+    'primal-strike': {
+      name: 'Golpe Primordial',
+      description: 'Uma vez em cada um dos seus turnos, quando você acerta uma criatura com uma jogada de ataque usando uma arma ou um ataque de forma de Fera em Forma Selvagem, você pode fazer o alvo sofrer 1d8 de dano de Ácido, Elétrico, Fogo, Frio ou Trovejante extra (escolha quando acertar).'
+    }
+  };
+
   /**
-   * Validates and enriches feature-level mechanics (maxUses & usesRecharge)
+   * Generates a strict lowercase slug (`^[a-z0-9]+(?:-[a-z0-9]+)*$`, 1..100 chars)
+   * unique within the provided `usedIds` set.
    */
-  public static validateFeatureMechanics(feature: any): any {
+  public static slugifyOptionId(name: string, usedIds?: Set<string>): string {
+    let base = String(name || '')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 100)
+      .replace(/-+$/g, '');
+    if (!base) base = 'option';
+
+    if (!usedIds) return base;
+    let candidate = base;
+    let counter = 2;
+    while (usedIds.has(candidate)) {
+      const suffix = `-${counter}`;
+      const prefix = base.slice(0, 100 - suffix.length).replace(/-+$/g, '') || 'option';
+      candidate = `${prefix}${suffix}`;
+      counter++;
+    }
+    usedIds.add(candidate);
+    return candidate;
+  }
+
+  /**
+   * Detects if an option description grants N extra cantrips from the class's spell list (integer 1..5).
+   */
+  public static extractExtraCantrips(text: string): number | undefined {
+    if (!text || typeof text !== 'string') return undefined;
+    const numMap: Record<string, number> = {
+      a: 1,
+      an: 1,
+      one: 1,
+      two: 2,
+      three: 3,
+      four: 4,
+      five: 5,
+      um: 1,
+      uma: 1,
+      dois: 2,
+      duas: 2,
+      tres: 3,
+      três: 3,
+      quatro: 4,
+      cinco: 5,
+      '1': 1,
+      '2': 2,
+      '3': 3,
+      '4': 4,
+      '5': 5
+    };
+
+    const enMatch =
+      text.match(/\b(?:you\s+)?(?:know|learn|gain|have)s?\s+(one|two|three|four|five|[1-5]|an?)\s+(?:extra|additional|bonus)\s+cantrips?\b/i) ||
+      text.match(/\b(one|two|three|four|five|[1-5])\s+(?:extra|additional|bonus)\s+cantrips?\s+(?:of\s+your\s+choice\s+)?from\s+the\s+[A-Za-z\s]+?\s+spell\s+list\b/i);
+    if (enMatch && enMatch[1]) {
+      const n = numMap[enMatch[1].toLowerCase()];
+      if (n && n >= 1 && n <= 5) return n;
+    }
+
+    const ptMatch =
+      text.match(/\b(?:você\s+)?(?:conhece|aprende|ganha|recebe)\s+(um|uma|dois|duas|três|tres|quatro|cinco|[1-5])\s+truques?\s+(?:extras?|adicionais?|adicional)\b/i) ||
+      text.match(/\b(um|uma|dois|duas|três|tres|quatro|cinco|[1-5])\s+truques?\s+(?:extras?|adicionais?|adicional)\s+da\s+lista\s+de\s+magias\b/i);
+    if (ptMatch && ptMatch[1]) {
+      const n = numMap[ptMatch[1].toLowerCase()];
+      if (n && n >= 1 && n <= 5) return n;
+    }
+
+    return undefined;
+  }
+
+  /**
+   * Validates and normalizes `option.grants`.
+   * STRICT object: only `{ extraCantrips: number }` (1..5) is allowed.
+   * Returns `undefined` if no extra cantrips are granted (never returns `{}` or `{ extraCantrips: 0 }`).
+   */
+  public static validateFeatureOptionGrants(
+    rawGrants: any,
+    description: string,
+    ptDescription?: string
+  ): { extraCantrips: number } | undefined {
+    if (rawGrants && typeof rawGrants === 'object' && !Array.isArray(rawGrants)) {
+      const rawVal = rawGrants.extraCantrips;
+      if (rawVal !== undefined && rawVal !== null) {
+        const num = typeof rawVal === 'number' ? Math.floor(rawVal) : parseInt(String(rawVal), 10);
+        if (!isNaN(num) && num >= 1 && num <= 5) {
+          return { extraCantrips: num };
+        }
+      }
+    }
+
+    const inferred =
+      this.extractExtraCantrips(description) ??
+      (ptDescription ? this.extractExtraCantrips(ptDescription) : undefined);
+    if (inferred !== undefined && inferred >= 1 && inferred <= 5) {
+      return { extraCantrips: inferred };
+    }
+
+    return undefined;
+  }
+
+  /**
+   * Validates and sanitizes `option.translations` so each locale entry is a strict object
+   * containing only optional non-empty `name` and `description`.
+   */
+  public static validateFeatureOptionTranslations(
+    rawTranslations: any
+  ): Record<string, { name?: string; description?: string }> | undefined {
+    if (!rawTranslations || typeof rawTranslations !== 'object' || Array.isArray(rawTranslations)) {
+      return undefined;
+    }
+
+    const result: Record<string, { name?: string; description?: string }> = {};
+    for (const [locale, val] of Object.entries(rawTranslations)) {
+      if (!val || typeof val !== 'object' || Array.isArray(val)) continue;
+      const entry: { name?: string; description?: string } = {};
+      if (typeof (val as any).name === 'string') {
+        const cleanName = (val as any).name
+          .trim()
+          .replace(/^[*_]+|[*_]+$/g, '')
+          .replace(/[.:]+$/, '')
+          .trim();
+        if (cleanName.length > 0) entry.name = cleanName;
+      }
+      if (typeof (val as any).description === 'string') {
+        const cleanDesc = (val as any).description.trim();
+        if (cleanDesc.length > 0) entry.description = cleanDesc;
+      }
+      if (entry.name !== undefined || entry.description !== undefined) {
+        result[locale] = entry;
+      }
+    }
+
+    return Object.keys(result).length > 0 ? result : undefined;
+  }
+
+  /**
+   * Checks whether a feature must NOT use `options[]` (Fighting Style feats, general feat picks,
+   * Expertise skill picks, spellChoice filter/list picks, or Species lineage picks).
+   */
+  public static isExcludedFromFeatureOptions(feature: any): boolean {
+    if (!feature || typeof feature !== 'object') return true;
+    if (feature.speciesWizardPick === 'lineagePick') return true;
+
+    const name = String(feature.name || '').trim();
+    const category = String(feature.category || '').trim();
+    const desc = String(feature.description || '').trim();
+
+    // 1. Expertise skill picks
+    if (/^expertise$/i.test(category) || /^(?:expertise|especialização|scholar|acadêmico|deft\s+explorer)$/i.test(name)) {
+      return true;
+    }
+
+    // 2. Spell choices with a filter/list (spellChoice)
+    if (feature.spellChoice !== undefined && feature.spellChoice !== null) {
+      return true;
+    }
+
+    // 3. Fighting Style feats or general feat picks
+    if (feature.choiceType === 'feat' || (feature.featFilter !== undefined && feature.featFilter !== null)) {
+      return true;
+    }
+    if (
+      /^(?:fighting\s+style|additional\s+fighting\s+style|estilo\s+de\s+luta|estilo\s+de\s+luta\s+adicional|ability\s+score\s+improvement|incremento\s+no\s+valor\s+de\s+habilidade|epic\s+boon|dádiva\s+épica|versatile|versátil|weapon\s+mastery|maestria\s+em\s+armas)$/i.test(
+        name
+      )
+    ) {
+      return true;
+    }
+    if (/\b(?:fighting\s+style\s+feat|origin\s+feat|general\s+feat|epic\s+boon\s+feat)\s+of\s+your\s+choice\b/i.test(desc)) {
+      return true;
+    }
+
+    return false;
+  }
+
+  /**
+   * Checks if a candidate heading string is a valid sub-option title (e.g. "Protector", "Thaumaturge", "Divine Strike")
+   * and not a normal sentence starter or standalone class feature header.
+   */
+  private static isValidOptionHeaderName(rawCandidate: string): boolean {
+    if (!rawCandidate || typeof rawCandidate !== 'string') return false;
+    const cleaned = rawCandidate
+      .trim()
+      .replace(/^[-•*#]+\s*/, '')
+      .replace(/^[*_]+|[*_]+$/g, '')
+      .replace(/[.:]+$/, '')
+      .trim();
+
+    if (!cleaned || cleaned.length < 2 || cleaned.length > 50) return false;
+    if (/[,;!?()]/.test(cleaned)) return false;
+    if (this.STANDALONE_CLASS_FEATURE_NAMES.test(cleaned)) return false;
+
+    const words = cleaned.split(/\s+/);
+    if (words.length < 1 || words.length > 4) return false;
+
+    const invalidFirstWords = new Set([
+      'the', 'a', 'an', 'in', 'on', 'at', 'by', 'for', 'to', 'from', 'with', 'without', 'of', 'as', 'if',
+      'when', 'while', 'once', 'after', 'before', 'until', 'since', 'because', 'although', 'though', 'unless',
+      'you', 'your', 'it', 'its', 'they', 'their', 'he', 'his', 'she', 'her', 'we', 'our', 'this', 'that',
+      'these', 'those', 'each', 'every', 'all', 'any', 'some', 'no', 'none', 'one', 'two', 'three', 'four',
+      'five', 'first', 'second', 'third', 'next', 'then', 'also', 'however', 'moreover', 'furthermore',
+      'additionally', 'instead', 'otherwise', 'therefore', 'thus', 'note', 'example', 'hit', 'miss',
+      'failure', 'success', 'trigger', 'response', 'effect', 'target', 'range', 'duration', 'components',
+      'level', 'source', 'prerequisite', 'trained', 'treinado', 'treinada', 'add', 'adicione', 'choose',
+      'escolha', 'gain', 'ganha', 'você', 'seu', 'sua', 'seus', 'suas', 'ele', 'ela', 'eles', 'elas',
+      'isso', 'isto', 'este', 'esta', 'estes', 'estas', 'esse', 'essa', 'esses', 'essas', 'cada', 'todo',
+      'toda', 'todos', 'todas', 'algum', 'alguma', 'nenhum', 'nenhuma', 'um', 'uma', 'dois', 'duas',
+      'três', 'tres', 'quatro', 'cinco', 'além', 'quando', 'se', 'enquanto', 'como', 'em', 'no', 'na',
+      'nos', 'nas', 'por', 'para', 'com', 'sem', 'de', 'do', 'da', 'dos', 'das', 'ou', 'e', 'mas',
+      'porém', 'contudo', 'entretanto', 'portanto', 'nota', 'exemplo', 'o', 'os', 'as'
+    ]);
+
+    if (invalidFirstWords.has(words[0].toLowerCase())) {
+      return false;
+    }
+
+    const connectors = new Set(['of', 'the', 'in', 'to', 'for', 'and', 'or', 'da', 'do', 'de', 'dos', 'das', 'e', 'ou']);
+    for (let i = 0; i < words.length; i++) {
+      const w = words[i];
+      if (i > 0 && connectors.has(w.toLowerCase())) continue;
+      if (!/^[A-ZÀ-Ý]/.test(w)) return false;
+    }
+
+    return true;
+  }
+
+  /**
+   * Parses named sub-options from the remainder of a feature description (supports both multi-line and inline formats).
+   */
+  public static parseSubOptionsFromText(remainder: string): Array<{ name: string; description: string }> {
+    if (!remainder || typeof remainder !== 'string') return [];
+    const text = remainder.replace(/\r\n/g, '\n').replace(/\r/g, '\n').trim();
+    if (!text) return [];
+
+    const headerRegex =
+      /(?:^|\n\s*|(?:(?<=[.!?])\s+))(?:[-•*]\s+)?(?:#{1,6}\s+)?(?:\*{1,3}|_{1,3})?([A-ZÀ-Ý][A-Za-zÀ-ÿ'\u2019\-]*(?:\s+(?:of|the|in|to|for|and|or|da|do|de|dos|das|e|ou|[A-ZÀ-Ý][A-Za-zÀ-ÿ'\u2019\-]*)){0,3})(?:\*{1,3}|_{1,3})?(?:\s*([.:])(?:\*{1,3}|_{1,3})?\s+|\s*(\n+)\s*)(?=[A-ZÀ-Ý0-9"“(*])/g;
+
+    const matches: Array<{ name: string; headerStart: number; contentStart: number }> = [];
+    let m: RegExpExecArray | null;
+    while ((m = headerRegex.exec(text)) !== null) {
+      const candidateName = m[1];
+      const punctSep = m[2]; // '.' or ':'
+      const newlineSep = m[3]; // '\n+'
+      const matchStr = m[0];
+
+      // If separated only by newline (no '.' or ':'), the heading must start at the beginning of a line
+      if (newlineSep && !punctSep) {
+        const startsAtLineBeginning = m.index === 0 || /^\n/.test(matchStr);
+        if (!startsAtLineBeginning) continue;
+      }
+
+      if (!this.isValidOptionHeaderName(candidateName)) {
+        continue;
+      }
+
+      // Compute exact start of this option header (after any leading newline/spaces)
+      const leadingWsMatch = matchStr.match(/^[\s\n]+/);
+      const headerStart = m.index + (leadingWsMatch ? leadingWsMatch[0].length : 0);
+      const contentStart = m.index + matchStr.length;
+
+      matches.push({
+        name: candidateName
+          .trim()
+          .replace(/^[*_]+|[*_]+$/g, '')
+          .replace(/[.:]+$/, '')
+          .trim(),
+        headerStart,
+        contentStart
+      });
+    }
+
+    if (matches.length < 2) {
+      return [];
+    }
+
+    const options: Array<{ name: string; description: string }> = [];
+    for (let i = 0; i < matches.length; i++) {
+      const curr = matches[i];
+      const nextHeaderStart = i + 1 < matches.length ? matches[i + 1].headerStart : text.length;
+      const desc = text
+        .slice(curr.contentStart, nextHeaderStart)
+        .trim()
+        .replace(/^[*_]+|[*_]+$/g, '')
+        .trim();
+      if (curr.name && desc) {
+        options.push({
+          name: curr.name,
+          description: desc
+        });
+      }
+    }
+
+    return options.length >= 2 ? options : [];
+  }
+
+  /**
+   * Determines whether a feature description introduces a single-choice sub-option selection.
+   */
+  public static isChoiceFeatureIntro(text: string, featureName?: string): boolean {
+    const cleanText = String(text || '').trim();
+    const cleanName = String(featureName || '').trim();
+    if (cleanName && this.KNOWN_CHOICE_FEATURE_NAMES.test(cleanName)) {
+      return true;
+    }
+    return this.CHOICE_INTRO_REGEX_EN.test(cleanText) || this.CHOICE_INTRO_REGEX_PT.test(cleanText);
+  }
+
+  /**
+   * Splits a feature description into its introductory sentence/paragraph and any embedded sub-options.
+   */
+  public static splitIntroAndOptionsFromText(
+    rawText: string,
+    featureName?: string,
+    forceChoice: boolean = false
+  ): {
+    isChoiceFeature: boolean;
+    intro: string;
+    options: Array<{ name: string; description: string }>;
+  } {
+    const text = String(rawText || '').replace(/\r\n/g, '\n').replace(/\r/g, '\n').trim();
+    if (!text) {
+      return { isChoiceFeature: false, intro: '', options: [] };
+    }
+
+    const matchEn = this.CHOICE_INTRO_REGEX_EN.exec(text);
+    const matchPt = this.CHOICE_INTRO_REGEX_PT.exec(text);
+    const match = matchEn || matchPt;
+    const isKnownName = Boolean(featureName && this.KNOWN_CHOICE_FEATURE_NAMES.test(featureName.trim()));
+
+    if (!match && !isKnownName && !forceChoice) {
+      return { isChoiceFeature: false, intro: text, options: [] };
+    }
+
+    let introEndIdx = text.length;
+    if (match) {
+      let parenDepth = 0;
+      const scanStart = match.index;
+      const minStop = match.index + match[0].length;
+      for (let i = scanStart; i < text.length; i++) {
+        const ch = text[i];
+        if (ch === '(') parenDepth++;
+        else if (ch === ')' && parenDepth > 0) parenDepth--;
+        else if (i >= minStop && parenDepth === 0 && (ch === '.' || ch === ':' || ch === '\n')) {
+          introEndIdx = ch === '\n' ? i : i + 1;
+          break;
+        }
+      }
+    } else {
+      // Fallback when forceChoice or known name without standard regex match
+      const nlIdx = text.indexOf('\n');
+      const sentMatch = text.match(/^[^.:]+[.:]/);
+      if (nlIdx !== -1 && (!sentMatch || nlIdx <= sentMatch[0].length + 2)) {
+        introEndIdx = nlIdx;
+      } else if (sentMatch) {
+        introEndIdx = sentMatch[0].length;
+      }
+    }
+
+    const intro = text
+      .slice(0, introEndIdx)
+      .trim()
+      .replace(/:$/, '.');
+    const remainder = text.slice(introEndIdx).trim();
+
+    if (!remainder) {
+      return {
+        isChoiceFeature: true,
+        intro: intro || text.replace(/:$/, '.'),
+        options: []
+      };
+    }
+
+    const parsedOptions = this.parseSubOptionsFromText(remainder);
+    if (parsedOptions.length >= 2) {
+      return {
+        isChoiceFeature: true,
+        intro: intro || text,
+        options: parsedOptions
+      };
+    }
+
+    // If forceChoice is true (e.g. feature.options already exists with >= 2 options) and remainder starts with the first option
+    if (forceChoice && intro) {
+      return {
+        isChoiceFeature: true,
+        intro,
+        options: []
+      };
+    }
+
+    return {
+      isChoiceFeature: Boolean(match || isKnownName),
+      intro: text.replace(/:$/, '.'),
+      options: []
+    };
+  }
+
+  /**
+   * Consolidates consecutive sibling entries in a `features[]` array that actually belong
+   * as `options[]` under a preceding single-choice parent feature (e.g. when a line-based parser
+   * split "Divine Order", "Protector", "Thaumaturge" into separate consecutive array items).
+   */
+  public static consolidateFeatureListOptions(
+    features: any[],
+    targetLocale?: string,
+    isSubclass: boolean = false
+  ): any[] {
+    if (!Array.isArray(features) || features.length === 0) return [];
+
+    const result: any[] = [];
+    let i = 0;
+
+    while (i < features.length) {
+      const current = features[i];
+      if (!current || typeof current !== 'object') {
+        result.push(current);
+        i++;
+        continue;
+      }
+
+      const feat = { ...current };
+      const hasExistingOptions = Array.isArray(feat.options) && feat.options.length >= 2;
+      const excluded = this.isExcludedFromFeatureOptions(feat);
+
+      if (!excluded && !hasExistingOptions) {
+        const splitCheck = this.splitIntroAndOptionsFromText(feat.description || '', feat.name, false);
+        if (splitCheck.isChoiceFeature && splitCheck.options.length === 0) {
+          // Look ahead for 2..10 sibling entries that are sub-options of this feature
+          const parentLevel = feat.classLevel ?? feat.level ?? (isSubclass ? 3 : 1);
+          const candidateOptions: any[] = [];
+          let j = i + 1;
+
+          while (j < features.length && candidateOptions.length < 10) {
+            const nextFeat = features[j];
+            if (!nextFeat || typeof nextFeat !== 'object') break;
+            const nextName = String(nextFeat.name || '').trim();
+            const nextDesc = String(nextFeat.description || '').trim();
+            if (!nextName || !nextDesc) break;
+
+            // Stop if next entry has an explicit different level or explicit Level N header
+            if (nextFeat._explicitLevelHeader) break;
+            const nextLevel = nextFeat.classLevel ?? nextFeat.level;
+            if (nextLevel !== undefined && nextLevel !== null && nextLevel !== parentLevel) {
+              break;
+            }
+
+            // Stop if next entry is a standalone class/subclass feature or starts with "At Nth level"
+            if (this.STANDALONE_CLASS_FEATURE_NAMES.test(nextName)) break;
+            if (!this.isValidOptionHeaderName(nextName)) break;
+            if (this.isChoiceFeatureIntro(nextDesc, nextName)) break;
+            if (/^(?:At|Starting\s+at|When\s+you\s+reach)\s+\d+(?:st|nd|rd|th)?\s+level\b/i.test(nextDesc)) {
+              break;
+            }
+
+            candidateOptions.push(nextFeat);
+            j++;
+          }
+
+          if (candidateOptions.length >= 2 && candidateOptions.length <= 10) {
+            feat.description = splitCheck.intro || feat.description;
+            feat.options = candidateOptions.map(c => ({
+              ...(c.id ? { id: c.id } : {}),
+              name: c.name,
+              description: c.description,
+              ...(c.translations ? { translations: c.translations } : {}),
+              ...(c.grants ? { grants: c.grants } : {})
+            }));
+            if (!feat.category || feat.category === 'Combat') {
+              feat.category = 'Class Feature';
+            }
+            i = j;
+            delete feat._explicitLevelHeader;
+            result.push(this.normalizeFeatureOptions(feat, targetLocale));
+            continue;
+          }
+        }
+      }
+
+      delete feat._explicitLevelHeader;
+      result.push(this.normalizeFeatureOptions(feat, targetLocale));
+      i++;
+    }
+
+    return result;
+  }
+
+  /**
+   * Validates, extracts, and normalizes `feature.options` and `grants.extraCantrips`
+   * on a Class or Subclass feature according to strict luca-app Zod schema rules.
+   */
+  public static normalizeFeatureOptions(feature: any, targetLocale?: string): any {
     if (!feature || typeof feature !== 'object') return feature;
+    if (feature.speciesWizardPick === 'lineagePick') return feature;
+
     const f = { ...feature };
+
+    if (this.isExcludedFromFeatureOptions(f)) {
+      if (f.options !== undefined) {
+        delete f.options;
+      }
+      return f;
+    }
+
+    const hadValidOptionsArray = Array.isArray(f.options) && f.options.length >= 2;
+    const enSplit = this.splitIntroAndOptionsFromText(f.description || '', f.name, hadValidOptionsArray);
+
+    // If options were embedded in description and f.options wasn't populated yet
+    if (!hadValidOptionsArray && enSplit.isChoiceFeature && enSplit.options.length >= 2) {
+      f.options = enSplit.options;
+    }
+
+    // If f now has options, ensure parent description and descriptionSmall only contain the intro
+    if (Array.isArray(f.options) && f.options.length >= 2) {
+      if (enSplit.intro) {
+        f.description = enSplit.intro;
+      } else if (typeof f.description === 'string') {
+        const firstOptName = String(f.options[0]?.name || '').trim();
+        if (firstOptName) {
+          const escName = firstOptName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+          const optStartMatch = f.description.match(
+            new RegExp(`(?:\\n\\s*|(?<=[.!?])\\s+)(?:[-•*]\\s+)?(?:#{1,6}\\s+)?(?:\\*{1,3}|_{1,3})?${escName}\\b`)
+          );
+          if (optStartMatch && optStartMatch.index !== undefined && optStartMatch.index > 0) {
+            f.description = f.description.slice(0, optStartMatch.index).trim().replace(/:$/, '.');
+          }
+        }
+      }
+
+      if (f.descriptionSmall !== undefined && f.descriptionSmall !== null) {
+        f.descriptionSmall = f.description;
+      } else if (f.category === 'Class Feature' || this.KNOWN_CHOICE_FEATURE_NAMES.test(String(f.name || '').trim())) {
+        f.descriptionSmall = f.description;
+      }
+
+      if (!f.category || (f.category === 'Combat' && this.KNOWN_CHOICE_FEATURE_NAMES.test(String(f.name || '').trim()))) {
+        f.category = 'Class Feature';
+      }
+    }
+
+    // Extract or clean embedded translations on the parent feature
+    const extractedLocaleOptions: Record<string, Array<{ name?: string; description?: string }>> = {};
+    const activeLocales = new Set<string>();
+    if (targetLocale && targetLocale !== 'none') {
+      activeLocales.add(targetLocale);
+    }
+    if (f.translations && typeof f.translations === 'object' && !Array.isArray(f.translations)) {
+      for (const locKey of Object.keys(f.translations)) {
+        activeLocales.add(locKey);
+      }
+    }
+
+    if (Array.isArray(f.options) && f.options.length >= 2) {
+      const featureSlug = this.slugifyOptionId(f.name || '');
+
+      for (const locKey of activeLocales) {
+        if (!f.translations || typeof f.translations !== 'object') {
+          f.translations = {};
+        }
+        const locObj = f.translations[locKey];
+        if (locObj && typeof locObj === 'object' && !Array.isArray(locObj)) {
+          if (Array.isArray(locObj.options)) {
+            extractedLocaleOptions[locKey] = locObj.options;
+            delete locObj.options;
+          }
+          if (typeof locObj.description === 'string' && locObj.description.trim().length > 0) {
+            const locSplit = this.splitIntroAndOptionsFromText(locObj.description, locObj.name || f.name, true);
+            if (locSplit.intro) {
+              locObj.description = locSplit.intro;
+              if (locObj.descriptionSmall !== undefined) {
+                locObj.descriptionSmall = locSplit.intro;
+              }
+            }
+            if (locSplit.options.length >= 2 && !extractedLocaleOptions[locKey]) {
+              extractedLocaleOptions[locKey] = locSplit.options;
+            }
+          }
+        }
+
+        // Apply canonical pt-BR fallback for known 2024 features if missing or untranslated
+        if (locKey === 'pt-BR' && this.CANONICAL_PT_BR_FEATURES[featureSlug]) {
+          const canon = this.CANONICAL_PT_BR_FEATURES[featureSlug];
+          if (!f.translations['pt-BR'] || typeof f.translations['pt-BR'] !== 'object') {
+            f.translations['pt-BR'] = {};
+          }
+          if (!f.translations['pt-BR'].name || f.translations['pt-BR'].name === f.name) {
+            f.translations['pt-BR'].name = canon.name;
+          }
+          if (!f.translations['pt-BR'].description || f.translations['pt-BR'].description === f.description) {
+            f.translations['pt-BR'].description = canon.description;
+          }
+        }
+      }
+
+      // Strictly validate and normalize each option in f.options
+      const usedIds = new Set<string>();
+      const validOptions: FeatureOption[] = [];
+
+      for (let idx = 0; idx < f.options.length; idx++) {
+        const rawOpt = f.options[idx];
+        if (!rawOpt || typeof rawOpt !== 'object' || Array.isArray(rawOpt)) continue;
+
+        const cleanName = String(rawOpt.name || '')
+          .trim()
+          .replace(/^[*_]+|[*_]+$/g, '')
+          .replace(/[.:]+$/, '')
+          .trim()
+          .slice(0, 200);
+        const cleanDesc = String(rawOpt.description || '').trim().slice(0, 20000);
+        if (!cleanName || !cleanDesc) continue;
+
+        const id = this.slugifyOptionId(cleanName, usedIds);
+
+        // Merge option translations from rawOpt.translations, extractedLocaleOptions, and canonical pt-BR dictionary
+        const mergedRawTrans: Record<string, any> =
+          rawOpt.translations && typeof rawOpt.translations === 'object' && !Array.isArray(rawOpt.translations)
+            ? { ...rawOpt.translations }
+            : {};
+
+        for (const [locKey, locOpts] of Object.entries(extractedLocaleOptions)) {
+          const locOpt = locOpts[idx];
+          if (locOpt && typeof locOpt === 'object') {
+            mergedRawTrans[locKey] = {
+              ...(mergedRawTrans[locKey] || {}),
+              ...(locOpt.name ? { name: locOpt.name } : {}),
+              ...(locOpt.description ? { description: locOpt.description } : {})
+            };
+          }
+        }
+
+        if (activeLocales.has('pt-BR')) {
+          const existingPt = mergedRawTrans['pt-BR'] || {};
+          let canonOpt = this.CANONICAL_PT_BR_OPTIONS[id];
+          if (!canonOpt && id === 'potent-spellcasting') {
+            const isDruid = /\bdruid\b/i.test(cleanDesc);
+            canonOpt = {
+              name: 'Conjuração Potente',
+              description: isDruid
+                ? 'Adicione seu modificador de Sabedoria ao dano que você causa com qualquer truque de Druida.'
+                : 'Adicione seu modificador de Sabedoria ao dano que você causa com qualquer truque de Clérigo.'
+            };
+          }
+          if (canonOpt) {
+            mergedRawTrans['pt-BR'] = {
+              name: existingPt.name && existingPt.name !== cleanName ? existingPt.name : canonOpt.name,
+              description:
+                existingPt.description && existingPt.description !== cleanDesc
+                  ? existingPt.description
+                  : canonOpt.description
+            };
+          }
+        }
+
+        const translations = this.validateFeatureOptionTranslations(mergedRawTrans);
+        const ptDesc = translations?.['pt-BR']?.description;
+        const grants = this.validateFeatureOptionGrants(rawOpt.grants, cleanDesc, ptDesc);
+
+        const strictOption: FeatureOption = {
+          id,
+          name: cleanName,
+          description: cleanDesc,
+          ...(translations ? { translations } : {}),
+          ...(grants ? { grants } : {})
+        };
+
+        validOptions.push(strictOption);
+      }
+
+      if (validOptions.length >= 2) {
+        f.options = validOptions.slice(0, 10);
+      } else {
+        delete f.options;
+      }
+    } else if (f.options !== undefined) {
+      delete f.options;
+    }
+
+    return f;
+  }
+
+  /**
+   * Synchronizes parallel class/subclass root `data.translations[locale]` (`features` and `levelProgression[].features`)
+   * with the normalized features so introductory descriptions and option translations stay consistent everywhere.
+   */
+  private static syncEntityFeatureTranslations(data: any, options: NormalizeOptions): void {
+    if (!data || typeof data !== 'object') return;
+    if (!data.translations || typeof data.translations !== 'object') return;
+
+    for (const [locale, locObj] of Object.entries<any>(data.translations)) {
+      if (!locObj || typeof locObj !== 'object') continue;
+
+      // 1. Sync root translations[locale].features with data.features
+      if (Array.isArray(locObj.features) && Array.isArray(data.features)) {
+        locObj.features = this.consolidateFeatureListOptions(locObj.features, locale, Boolean(data.className));
+
+        for (let i = 0; i < data.features.length; i++) {
+          const enFeat = data.features[i];
+          const locFeat = locObj.features[i];
+          if (!enFeat || typeof enFeat !== 'object') continue;
+
+          if (locFeat && typeof locFeat === 'object' && Array.isArray(enFeat.options) && enFeat.options.length >= 2) {
+            const locSplit = this.splitIntroAndOptionsFromText(locFeat.description || '', locFeat.name || enFeat.name, true);
+            if (locSplit.intro) {
+              locFeat.description = locSplit.intro;
+              if (locFeat.descriptionSmall !== undefined) {
+                locFeat.descriptionSmall = locSplit.intro;
+              }
+            }
+            if (!enFeat.translations || typeof enFeat.translations !== 'object') {
+              enFeat.translations = {};
+            }
+            enFeat.translations[locale] = {
+              ...(enFeat.translations[locale] || {}),
+              ...(locFeat.name && locFeat.name !== enFeat.name ? { name: locFeat.name } : {}),
+              ...(locFeat.description && locFeat.description !== enFeat.description ? { description: locFeat.description } : {})
+            };
+
+            const locOpts = Array.isArray(locFeat.options) && locFeat.options.length >= 2
+              ? locFeat.options
+              : locSplit.options;
+            if (Array.isArray(locOpts) && locOpts.length === enFeat.options.length) {
+              for (let k = 0; k < enFeat.options.length; k++) {
+                const opt = enFeat.options[k];
+                const lOpt = locOpts[k];
+                if (opt && lOpt && typeof lOpt === 'object') {
+                  opt.translations = this.validateFeatureOptionTranslations({
+                    ...(opt.translations || {}),
+                    [locale]: {
+                      name: lOpt.name || opt.translations?.[locale]?.name,
+                      description: lOpt.description || opt.translations?.[locale]?.description
+                    }
+                  });
+                }
+              }
+            }
+
+            if (enFeat.translations?.[locale]?.description) {
+              locFeat.description = enFeat.translations[locale].description;
+            }
+            if (enFeat.translations?.[locale]?.name) {
+              locFeat.name = enFeat.translations[locale].name;
+            }
+          }
+        }
+      }
+
+      // 2. Sync root translations[locale].levelProgression[].features with data.levelProgression[].features
+      if (Array.isArray(locObj.levelProgression) && Array.isArray(data.levelProgression)) {
+        for (const locLp of locObj.levelProgression) {
+          if (!locLp || !Array.isArray(locLp.features)) continue;
+          locLp.features = this.consolidateFeatureListOptions(locLp.features, locale, false);
+          const enLp = data.levelProgression.find((lp: any) => lp && lp.level === locLp.level);
+          if (!enLp || !Array.isArray(enLp.features)) continue;
+
+          for (let i = 0; i < enLp.features.length; i++) {
+            const enFeat = enLp.features[i];
+            const locFeat = locLp.features[i];
+            if (!enFeat || typeof enFeat !== 'object' || !locFeat || typeof locFeat !== 'object') continue;
+
+            if (Array.isArray(enFeat.options) && enFeat.options.length >= 2) {
+              const locSplit = this.splitIntroAndOptionsFromText(locFeat.description || '', locFeat.name || enFeat.name, true);
+              if (locSplit.intro) {
+                locFeat.description = locSplit.intro;
+                if (locFeat.descriptionSmall !== undefined) {
+                  locFeat.descriptionSmall = locSplit.intro;
+                }
+              }
+              if (!enFeat.translations || typeof enFeat.translations !== 'object') {
+                enFeat.translations = {};
+              }
+              enFeat.translations[locale] = {
+                ...(enFeat.translations[locale] || {}),
+                ...(locFeat.name && locFeat.name !== enFeat.name ? { name: locFeat.name } : {}),
+                ...(locFeat.description && locFeat.description !== enFeat.description ? { description: locFeat.description } : {})
+              };
+
+              const locOpts = Array.isArray(locFeat.options) && locFeat.options.length >= 2
+                ? locFeat.options
+                : locSplit.options;
+              if (Array.isArray(locOpts) && locOpts.length === enFeat.options.length) {
+                for (let k = 0; k < enFeat.options.length; k++) {
+                  const opt = enFeat.options[k];
+                  const lOpt = locOpts[k];
+                  if (opt && lOpt && typeof lOpt === 'object') {
+                    opt.translations = this.validateFeatureOptionTranslations({
+                      ...(opt.translations || {}),
+                      [locale]: {
+                        name: lOpt.name || opt.translations?.[locale]?.name,
+                        description: lOpt.description || opt.translations?.[locale]?.description
+                      }
+                    });
+                  }
+                }
+              }
+
+              if (enFeat.translations?.[locale]?.description) {
+                locFeat.description = enFeat.translations[locale].description;
+              }
+              if (enFeat.translations?.[locale]?.name) {
+                locFeat.name = enFeat.translations[locale].name;
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+
+  /**
+   * Validates and enriches feature-level mechanics (options[], grants.extraCantrips, maxUses & usesRecharge)
+   */
+  public static validateFeatureMechanics(feature: any, targetLocale?: string): any {
+    if (!feature || typeof feature !== 'object') return feature;
+    const f = PropertyValidator.normalizeFeatureOptions({ ...feature }, targetLocale);
     const rawName = String(f.name || '').trim();
     const rawDesc = String(f.description || '').trim();
     const text = `${rawName} ${rawDesc}`;
@@ -1613,7 +2484,9 @@ export class PropertyValidator {
       if (/(?:number\s+of\s+times\s+equal\s+to\s+your\s+Proficiency\s+Bonus|times\s+equal\s+to\s+your\s+PB)/i.test(text)) {
         f.maxUses = { type: 'proficiencyBonus' };
       } else {
-        const abModMatch = text.match(/equal\s+to\s+your\s+(Strength|Dexterity|Constitution|Intelligence|Wisdom|Charisma)\s+modifier(?:\s*\(minimum\s+of\s+(\d+)\))?/i);
+        const abModMatch = text.match(
+          /(?:(?:times?|uses?)\s+equal\s+to\s+your|use\s+(?:this|it)[^\n.]*?\s+equal\s+to\s+your)\s+(Strength|Dexterity|Constitution|Intelligence|Wisdom|Charisma)\s+modifier(?:\s*\(minimum\s+of\s+(\d+)\))?/i
+        );
         if (abModMatch) {
           const ab = abModMatch[1].toLowerCase() as any;
           const min = abModMatch[2] ? parseInt(abModMatch[2], 10) : 1;
@@ -2395,27 +3268,39 @@ export class PropertyValidator {
       data.skillProficiency = [];
     }
 
-    // 8. features: extract from levelProgression if missing
-    if (!Array.isArray(data.features) || data.features.length === 0) {
-      if (Array.isArray(data.levelProgression)) {
-        const flattened: any[] = [];
-        for (const lp of data.levelProgression) {
-          if (Array.isArray(lp.features)) {
-            for (const feat of lp.features) {
-              flattened.push({
-                ...feat,
-                classLevel: feat.classLevel || lp.level || 1
-              });
-            }
-          }
+    // 8. Consolidate single-choice feature options in levelProgression and features
+    if (Array.isArray(data.levelProgression)) {
+      data.levelProgression = data.levelProgression.map((lp: any) => {
+        if (lp && Array.isArray(lp.features)) {
+          return {
+            ...lp,
+            features: PropertyValidator.consolidateFeatureListOptions(lp.features, options.targetLocale, false)
+          };
         }
-        data.features = flattened;
-      } else {
-        data.features = [];
-      }
+        return lp;
+      });
     }
 
-    data.features = data.features.map((f: any) => PropertyValidator.validateFeatureMechanics(f));
+    if (Array.isArray(data.features) && data.features.length > 0) {
+      data.features = PropertyValidator.consolidateFeatureListOptions(data.features, options.targetLocale, false);
+    } else if (Array.isArray(data.levelProgression)) {
+      const flattened: any[] = [];
+      for (const lp of data.levelProgression) {
+        if (Array.isArray(lp.features)) {
+          for (const feat of lp.features) {
+            flattened.push({
+              ...feat,
+              classLevel: feat.classLevel || lp.level || 1
+            });
+          }
+        }
+      }
+      data.features = flattened;
+    } else {
+      data.features = [];
+    }
+
+    data.features = data.features.map((f: any) => PropertyValidator.validateFeatureMechanics(f, options.targetLocale));
 
     tickCheck();
     if (!data.spellcasting || typeof data.spellcasting !== 'object') {
@@ -2423,21 +3308,79 @@ export class PropertyValidator {
     }
 
     tickCheck();
-    data.levelProgression = Array.isArray(data.levelProgression)
-      ? data.levelProgression.map((lp: any) => {
-          if (lp && Array.isArray(lp.features)) {
-            return {
-              ...lp,
-              features: lp.features.map((f: any) => PropertyValidator.validateFeatureMechanics(f))
-            };
+    const isNotFighter = data.name && !/^fighter$/i.test(String(data.name).trim());
+    const hasFighterTemplateCarryover =
+      isNotFighter &&
+      Array.isArray(data.levelProgression) &&
+      data.levelProgression.some(
+        (lp: any) =>
+          Array.isArray(lp?.features) &&
+          lp.features.some((f: any) => f?.name === 'Second Wind' || f?.name === 'Fighter Subclass')
+      );
+
+    if ((!Array.isArray(data.levelProgression) || data.levelProgression.length === 0 || hasFighterTemplateCarryover) && data.features.length > 0) {
+      const byLevel = new Map<number, any[]>();
+      for (const feat of data.features) {
+        const lvl = typeof feat?.classLevel === 'number' && feat.classLevel > 0 ? feat.classLevel : 1;
+        if (!byLevel.has(lvl)) byLevel.set(lvl, []);
+        byLevel.get(lvl)!.push({ ...feat, classLevel: lvl });
+      }
+      data.levelProgression = Array.from(byLevel.entries())
+        .sort((a, b) => a[0] - b[0])
+        .map(([level, feats]) => ({
+          level,
+          proficiencyBonus: Math.floor((level - 1) / 4) + 2,
+          features: feats.map((f: any) => PropertyValidator.validateFeatureMechanics(f, options.targetLocale))
+        }));
+    } else {
+      data.levelProgression = Array.isArray(data.levelProgression)
+        ? data.levelProgression.map((lp: any) => {
+            if (lp && Array.isArray(lp.features)) {
+              return {
+                ...lp,
+                features: lp.features.map((f: any) => PropertyValidator.validateFeatureMechanics(f, options.targetLocale))
+              };
+            }
+            return lp;
+          })
+        : [];
+    }
+
+    // Keep features and levelProgression[].features in sync for options and translations
+    if (Array.isArray(data.features) && Array.isArray(data.levelProgression)) {
+      for (const lp of data.levelProgression) {
+        if (!lp || !Array.isArray(lp.features)) continue;
+        for (const lpFeat of lp.features) {
+          if (!lpFeat || !lpFeat.name) continue;
+          const flatMatch = data.features.find(
+            (f: any) =>
+              f &&
+              f.name &&
+              String(f.name).toLowerCase().trim() === String(lpFeat.name).toLowerCase().trim() &&
+              (f.classLevel || 1) === (lpFeat.classLevel || lp.level || 1)
+          );
+          if (flatMatch) {
+            if (Array.isArray(lpFeat.options) && !Array.isArray(flatMatch.options)) {
+              flatMatch.description = lpFeat.description;
+              if (lpFeat.descriptionSmall) flatMatch.descriptionSmall = lpFeat.descriptionSmall;
+              flatMatch.options = lpFeat.options;
+              if (lpFeat.translations) flatMatch.translations = lpFeat.translations;
+            } else if (Array.isArray(flatMatch.options) && !Array.isArray(lpFeat.options)) {
+              lpFeat.description = flatMatch.description;
+              if (flatMatch.descriptionSmall) lpFeat.descriptionSmall = flatMatch.descriptionSmall;
+              lpFeat.options = flatMatch.options;
+              if (flatMatch.translations) lpFeat.translations = flatMatch.translations;
+            }
           }
-          return lp;
-        })
-      : [];
+        }
+      }
+    }
+
     this.resolveSystem(data, options, coercedFields, tickCheck);
 
     this.ensureBooksArray(data, options, coercedFields, tickCheck);
     this.ensureEmbeddedTranslation(data, options, ['name', 'description', 'flavorText'], tickCheck);
+    this.syncEntityFeatureTranslations(data, options);
   }
 
   /**
@@ -2538,8 +3481,14 @@ export class PropertyValidator {
       addUnique(data.traits.savingThrowProficiencies, stMatch[1]);
     }
 
-    // 2. Features Level Fallback (Kickoff Level 3) & Action Economy Classification
-    data.features = (Array.isArray(data.features) ? data.features : []).map((f: any) => {
+    // 2. Features Level Fallback (Kickoff Level 3), Option Consolidation & Action Economy Classification
+    const consolidatedSubclassFeatures = PropertyValidator.consolidateFeatureListOptions(
+      Array.isArray(data.features) ? data.features : [],
+      options.targetLocale,
+      true
+    );
+
+    data.features = consolidatedSubclassFeatures.map((f: any) => {
       if (!f || typeof f !== 'object') return f;
 
       let lvl: number | null = null;
@@ -2584,11 +3533,14 @@ export class PropertyValidator {
         }
       }
 
-      return PropertyValidator.validateFeatureMechanics({
-        ...f,
-        level: lvl || 3,
-        actionType
-      });
+      return PropertyValidator.validateFeatureMechanics(
+        {
+          ...f,
+          level: lvl || 3,
+          actionType
+        },
+        options.targetLocale
+      );
     });
 
     // 3. Maneuver Subclasses (e.g. Battle Master)
@@ -2635,6 +3587,7 @@ export class PropertyValidator {
 
     this.ensureBooksArray(data, options, coercedFields, tickCheck);
     this.ensureEmbeddedTranslation(data, options, ['name', 'description', 'features'], tickCheck);
+    this.syncEntityFeatureTranslations(data, options);
   }
 
   /**

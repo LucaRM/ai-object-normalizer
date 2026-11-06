@@ -123,6 +123,9 @@ export class CustomOpenAIProvider implements NormalizerProvider {
   }
 
   private buildPrompt(text: string, schema: any, options: NormalizeOptions): string {
+    const templateDef = options.template ? getTemplate(options.template) : undefined;
+    const specializedGuide = templateDef?.promptGuide ? `\n${templateDef.promptGuide}\n` : '';
+
     let schemaStr = '';
     if (typeof schema === 'string') {
       const tmpl = getTemplate(schema);
@@ -136,11 +139,10 @@ export class CustomOpenAIProvider implements NormalizerProvider {
         ? `\nTRANSLATION REQUIREMENT: Translate all natural language descriptive texts into "${options.targetLocale}" while keeping keys and technical terms intact.`
         : '';
 
-    return `Extract all relevant entity information from the following text and format it into a JSON object strictly matching this schema.
+    return `Extract all relevant entity information from the following text and format it into a JSON object strictly matching this schema.${specializedGuide}${localeInstruction}
 
 Target JSON Schema:
 ${schemaStr}
-${localeInstruction}
 
 Source Text:
 ${text}

@@ -8,7 +8,28 @@ import axios from 'axios';
  */
 export class FreeTranslator {
   private static localTranslatorUrl = process.env.AUTOMATIC_TRANSLATOR_URL || 'http://localhost:3008/translate';
-  private static memoryCache = new Map<string, string>();
+  private static memoryCache = new Map<string, string>([
+    ['en:pt-BR:Cleric', 'Clérigo'],
+    ['en:pt-BR:Druid', 'Druida'],
+    ['en:pt-BR:Divine Order', 'Ordem Divina'],
+    ['en:pt-BR:Primal Order', 'Ordem Primordial'],
+    ['en:pt-BR:Blessed Strikes', 'Golpes Abençoados'],
+    ['en:pt-BR:Elemental Fury', 'Fúria Elemental'],
+    ['en:pt-BR:You have dedicated yourself to one of the following sacred roles of your choice.', 'Você se dedicou a um dos seguintes papéis sagrados de sua escolha.'],
+    ['en:pt-BR:You have dedicated yourself to one of the following sacred roles of your choice:', 'Você se dedicou a um dos seguintes papéis sagrados de sua escolha.'],
+    ['en:pt-BR:Protector', 'Protetor'],
+    ['en:pt-BR:Trained for battle, you gain proficiency with Martial weapons and training with Heavy armor.', 'Treinado para a batalha, você ganha proficiência com armas marciais e treina com armaduras pesadas.'],
+    ['en:pt-BR:Thaumaturge', 'Taumaturgo'],
+    ['en:pt-BR:You know one extra cantrip from the Cleric spell list. In addition, your mystical connection to the divine gives you a bonus to your Intelligence (Arcana or Religion) checks. The bonus equals your Wisdom modifier (minimum of +1).', 'Você conhece um truque extra da lista de magias do Clérigo. Além disso, sua conexão mística com o divino lhe dá um bônus em seus testes de Inteligência (Arcanismo ou Religião). O bônus é igual ao seu modificador de Sabedoria (mínimo de +1).'],
+    ['en:pt-BR:Magician', 'Mago'],
+    ['en:pt-BR:You know one extra cantrip from the Druid spell list. In addition, your mystical connection to nature gives you a bonus to your Intelligence (Arcana or Nature) checks. The bonus equals your Wisdom modifier (minimum bonus of +1).', 'Você conhece um truque extra da lista de magias do Druida. Além disso, sua conexão mística com a natureza lhe dá um bônus em seus testes de Inteligência (Arcanismo ou Natureza). O bônus é igual ao seu modificador de Sabedoria (bônus mínimo de +1).'],
+    ['en:pt-BR:You know one extra cantrip from the Druid spell list. In addition, your mystical connection to nature gives you a bonus to your Intelligence (Arcana or Nature) checks. The bonus equals your Wisdom modifier (minimum of +1).', 'Você conhece um truque extra da lista de magias do Druida. Além disso, sua conexão mística com a natureza lhe dá um bônus em seus testes de Inteligência (Arcanismo ou Natureza). O bônus é igual ao seu modificador de Sabedoria (mínimo de +1).'],
+    ['en:pt-BR:Warden', 'Guardião'],
+    ['en:pt-BR:Trained for battle, you gain proficiency with Martial weapons and training with Medium armor.', 'Treinado para a batalha, você ganha proficiência com armas marciais e treina com armadura média.'],
+    ['en:pt-BR:Divine Strike', 'Golpe Divino'],
+    ['en:pt-BR:Potent Spellcasting', 'Conjuração Potente'],
+    ['en:pt-BR:Primal Strike', 'Golpe Primordial']
+  ]);
   private static myMemoryCooldownUntil = 0;
 
   /**
@@ -123,23 +144,23 @@ export class FreeTranslator {
 
     const loc = entity.translations[targetLocale];
 
-    // Always translate name for entity
-    if (entity.name) {
+    // Translate name for entity if missing or untranslated
+    if (entity.name && (!loc.name || loc.name === entity.name)) {
       loc.name = await this.translateText(entity.name, targetLocale);
     }
 
     // Translate type
-    if (entity.type) {
+    if (entity.type && (!loc.type || loc.type === entity.type)) {
       loc.type = await this.translateText(entity.type, targetLocale);
     }
 
     // Translate alignment
-    if (entity.alignment) {
+    if (entity.alignment && (!loc.alignment || loc.alignment === entity.alignment)) {
       loc.alignment = await this.translateText(entity.alignment, targetLocale);
     }
 
-    // Translate description
-    if (entity.description) {
+    // Translate description if missing or untranslated
+    if (entity.description && (!loc.description || loc.description === entity.description)) {
       loc.description = await this.translateText(entity.description, targetLocale);
     }
 
@@ -191,6 +212,93 @@ export class FreeTranslator {
           description: l.description ? await this.translateText(l.description, targetLocale) : ''
         }))
       );
+    }
+
+    // Helper to enrich a single feature (and its options[]) with targetLocale translations
+    const enrichFeatureTranslation = async (f: any) => {
+      if (!f || typeof f !== 'object') return;
+      if (!f.translations || typeof f.translations !== 'object') {
+        f.translations = {};
+      }
+      if (!f.translations[targetLocale] || typeof f.translations[targetLocale] !== 'object') {
+        f.translations[targetLocale] = {};
+      }
+      const fLoc = f.translations[targetLocale];
+      if (f.name && (!fLoc.name || fLoc.name === f.name)) {
+        fLoc.name = await this.translateText(f.name, targetLocale);
+      }
+      if (f.description && (!fLoc.description || fLoc.description === f.description)) {
+        fLoc.description = await this.translateText(f.description, targetLocale);
+      }
+      if (Array.isArray(f.options)) {
+        for (const opt of f.options) {
+          if (!opt || typeof opt !== 'object') continue;
+          if (!opt.translations || typeof opt.translations !== 'object') {
+            opt.translations = {};
+          }
+          const existingOptLoc = opt.translations[targetLocale] && typeof opt.translations[targetLocale] === 'object'
+            ? opt.translations[targetLocale]
+            : {};
+          const optName = opt.name
+            ? (existingOptLoc.name && existingOptLoc.name !== opt.name
+                ? existingOptLoc.name
+                : await this.translateText(opt.name, targetLocale))
+            : undefined;
+          const optDesc = opt.description
+            ? (existingOptLoc.description && existingOptLoc.description !== opt.description
+                ? existingOptLoc.description
+                : await this.translateText(opt.description, targetLocale))
+            : undefined;
+          opt.translations[targetLocale] = {
+            ...(optName ? { name: optName } : {}),
+            ...(optDesc ? { description: optDesc } : {})
+          };
+        }
+      }
+    };
+
+    if (Array.isArray(entity.features)) {
+      for (const f of entity.features) {
+        await enrichFeatureTranslation(f);
+      }
+      if (Array.isArray(loc.features)) {
+        loc.features = entity.features.map((f: any, idx: number) => {
+          const prev = loc.features[idx] && typeof loc.features[idx] === 'object' ? loc.features[idx] : {};
+          const fLoc = f?.translations?.[targetLocale];
+          return {
+            ...prev,
+            name: fLoc?.name || prev.name || f?.name || '',
+            description: fLoc?.description || f?.description || ''
+          };
+        });
+      }
+    }
+
+    if (Array.isArray(entity.levelProgression)) {
+      for (const lp of entity.levelProgression) {
+        if (lp && Array.isArray(lp.features)) {
+          for (const f of lp.features) {
+            await enrichFeatureTranslation(f);
+          }
+        }
+      }
+      if (Array.isArray(loc.levelProgression)) {
+        for (const locLp of loc.levelProgression) {
+          if (!locLp || !Array.isArray(locLp.features)) continue;
+          const matchLp = entity.levelProgression.find((lp: any) => lp?.level === locLp.level);
+          if (matchLp && Array.isArray(matchLp.features)) {
+            locLp.features = locLp.features.map((lf: any, idx: number) => {
+              const srcF = matchLp.features[idx];
+              const fLoc = srcF?.translations?.[targetLocale];
+              return {
+                ...lf,
+                name: fLoc?.name || lf?.name || srcF?.name || '',
+                description: fLoc?.description || lf?.description || srcF?.description || ''
+              };
+            });
+          }
+        }
+      }
     }
 
     // Apply metadata

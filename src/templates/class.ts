@@ -193,7 +193,19 @@ If the feature can only be used a limited number of times before recharging:
   - Short rest: { "shortRest": "all" } or { "shortRest": 1, "longRest": "all" }
   - Long rest only: { "longRest": "all" }
   - Dawn: { "dawn": "all" } or { "dawn": 1 }
-If the feature is passive (e.g. Darkvision, unarmored defense), omit 'maxUses' and 'usesRecharge'.`;
+If the feature is passive (e.g. Darkvision, unarmored defense), omit 'maxUses' and 'usesRecharge'.
+
+SINGLE-CHOICE FEATURE OPTIONS (options[] & grants.extraCantrips):
+When a class feature in 'levelProgression[].features[]' or 'features[]' asks the player to choose one of several named sub-options/roles/orders (e.g., 2024 Cleric "Divine Order": Protector / Thaumaturge; 2024 Druid "Primal Order": Magician / Warden; Cleric "Blessed Strikes": Divine Strike / Potent Spellcasting; Druid "Elemental Fury": Potent Spellcasting / Primal Strike):
+1. Do NOT flatten the option headings and paragraphs into a single description string.
+2. Keep ONLY the introductory sentence/paragraph in the parent feature's "description" (and "descriptionSmall", and "translations['pt-BR'].description").
+3. Emit a structured "options" array on the feature (2 to 10 items). Every option MUST be a strict object with ONLY these keys:
+   - "id": required lowercase slug matching /^[a-z0-9]+(?:-[a-z0-9]+)*$/, unique within feature.options, derived from the English option name (e.g., "Protector" -> "protector", "Thaumaturge" -> "thaumaturge").
+   - "name": required non-empty English option name.
+   - "description": required non-empty full English option description.
+   - "translations": optional record keyed by locale (e.g. { "pt-BR": { "name": "...", "description": "..." } }).
+   - "grants": optional strict object. Currently the ONLY allowed key is "extraCantrips" (integer 1..5). When an option states that the character knows/learns N extra cantrip(s) from the class's spell list (e.g. "You know one extra cantrip from the Cleric spell list"), set "grants": { "extraCantrips": 1 }. Omit "grants" entirely if the option does not grant extra cantrips (do NOT emit grants: {} or grants: { extraCantrips: 0 } or unapproved keys such as armor/weapon proficiencies or skill bonuses).
+4. Do NOT use "options" for Fighting Style feats or general feat picks, Expertise skill picks (category: "Expertise"), or spell choices with a filter/list (spellChoice).`;
 
 export const CLASS_EXAMPLE_PARAGRAPH = `Fighter
 Primary Ability: Strength or Dexterity

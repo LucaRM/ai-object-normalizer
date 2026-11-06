@@ -321,6 +321,31 @@ export type FeatureMaxUses =
     };
 
 // ==========================================
+// 2b. CLASS & SUBCLASS FEATURE OPTIONS
+// ==========================================
+export interface FeatureOption {
+  /** Required: lowercase slug (`^[a-z0-9]+(?:-[a-z0-9]+)*$`), unique within the feature (1..100 chars) */
+  id: string;
+  /** Required: English option name (1..200 chars) */
+  name: string;
+  /** Required: English option description (1..20000 chars) */
+  description: string;
+  /** Optional: locale translations (same locale keys as the feature, e.g. 'pt-BR') */
+  translations?: Record<string, {
+    name?: string;
+    description?: string;
+  }>;
+  /**
+   * Optional: structured mechanical grants when this option is chosen.
+   * STRICT object — only supported keys may be emitted. Unknown keys are rejected by the API.
+   */
+  grants?: {
+    /** Extra cantrips from the class's own spell list, added to that class's cantrip limit (int 1..5) */
+    extraCantrips?: number;
+  };
+}
+
+// ==========================================
 // 3. SPELL ACTIVE EFFECT
 // ==========================================
 export type ActiveEffectDurationUnit =

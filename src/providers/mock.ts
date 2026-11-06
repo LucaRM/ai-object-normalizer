@@ -1013,7 +1013,19 @@ export class MockProvider implements NormalizerProvider {
   private extractClass(text: string, schema: any, options: NormalizeOptions): string {
     const cleaned = text.replace(/\[([^\]]+)\]\([^)]+\)/g, '$1').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
     const lines = cleaned.split('\n').map(l => l.trim()).filter(Boolean);
-    const name = this.cleanName(lines[0] || 'Class');
+    let name = this.cleanName(lines[0] || 'Class');
+
+    // If the input starts directly with a feature header (e.g., "Level 1: Divine Order" or "Divine Order"),
+    // infer the parent class name from the text if present.
+    if (/^(?:Level\s+\d+\s*:|Divine\s+Order|Primal\s+Order|Blessed\s+Strikes|Elemental\s+Fury)\b/i.test(name)) {
+      const inferredClassMatch =
+        cleaned.match(/\bfrom\s+the\s+(Barbarian|Bard|Cleric|Druid|Fighter|Monk|Paladin|Ranger|Rogue|Sorcerer|Warlock|Wizard)\s+spell\s+list\b/i) ||
+        cleaned.match(/\bper\s+(Barbarian|Bard|Cleric|Druid|Fighter|Monk|Paladin|Ranger|Rogue|Sorcerer|Warlock|Wizard)\s+level\b/i) ||
+        cleaned.match(/\bCore\s+(Barbarian|Bard|Cleric|Druid|Fighter|Monk|Paladin|Ranger|Rogue|Sorcerer|Warlock|Wizard)\s+Traits\b/i);
+      if (inferredClassMatch) {
+        name = inferredClassMatch[1].charAt(0).toUpperCase() + inferredClassMatch[1].slice(1).toLowerCase();
+      }
+    }
 
     // 1. Hit Die
     let hitDie = '1d8';
@@ -1082,17 +1094,67 @@ export class MockProvider implements NormalizerProvider {
 
     // 9. Class Features
     const entries = this.parseEntries(cleaned);
-    const features = entries
-      .filter(e => !/^(?:Core\s+[A-Za-z]+\s+Traits|Primary\s+Ability|Hit\s+(?:Point\s+)?(?:Die|Dice)|Saving\s+Throw|Armor\s+Training|Weapon\s+Proficienc|Tool\s+Proficienc|Skill\s+Proficienc|Starting\s+Equipment|Level\s+\d+|Source)/i.test(e.name))
+    let currentLevel = 1;
+    const rawFeatures = entries
+      .filter(
+        e =>
+          e.name.toLowerCase() !== name.toLowerCase() &&
+          !/^(?:Core\s+[A-Za-z]+\s+Traits|Primary\s+Ability|Hit\s+(?:Point\s+)?(?:Die|Dice)|Saving\s+Throw|Armor\s+Training|Weapon\s+Proficienc|Tool\s+Proficienc|Skill\s+Proficienc|Starting\s+Equipment|Level\s+\d+\s*:?$|Source)/i.test(
+            e.name
+          )
+      )
       .map(e => {
+        let featName = e.name.trim();
+        let explicitLevelHeader = false;
+        const levelPrefixMatch = featName.match(/^Level\s+(\d+)\s*:\s*(.+)$/i);
+        if (levelPrefixMatch) {
+          currentLevel = parseInt(levelPrefixMatch[1], 10);
+          featName = levelPrefixMatch[2].trim();
+          explicitLevelHeader = true;
+        }
         const lvlMatch = e.description.match(/(?:At|Starting\s+at)\s+(\d+)(?:st|nd|rd|th)?\s+level/i);
+        const featLevel = explicitLevelHeader ? currentLevel : (lvlMatch ? parseInt(lvlMatch[1], 10) : currentLevel);
+
         return {
-          name: e.name,
+          name: featName,
           description: e.description,
-          category: 'Combat',
-          classLevel: lvlMatch ? parseInt(lvlMatch[1], 10) : 1
+          descriptionSmall: e.description,
+          category: 'Class Feature',
+          classLevel: featLevel,
+          subclassFeature: false,
+          actionType: null,
+          source: {
+            type: 'Class',
+            name,
+            level: featLevel
+          },
+          _explicitLevelHeader: explicitLevelHeader
         };
       });
+
+    const features = PropertyValidator.consolidateFeatureListOptions(
+      rawFeatures,
+      options.targetLocale,
+      false
+    ).map((f: any) => PropertyValidator.validateFeatureMechanics(f, options.targetLocale));
+
+    // Build levelProgression from extracted features when present
+    let levelProgression = CLASS_TEMPLATE.levelProgression;
+    if (features.length > 0) {
+      const byLevel = new Map<number, any[]>();
+      for (const f of features) {
+        const lvl = f.classLevel || 1;
+        if (!byLevel.has(lvl)) byLevel.set(lvl, []);
+        byLevel.get(lvl)!.push(f);
+      }
+      levelProgression = Array.from(byLevel.entries())
+        .sort((a, b) => a[0] - b[0])
+        .map(([lvl, lvlFeatures]) => ({
+          level: lvl,
+          proficiencyBonus: Math.ceil(lvl / 4) + 1,
+          features: lvlFeatures.map(f => ({ ...f }))
+        }));
+    }
 
     const clone: any = {
       ...CLASS_TEMPLATE,
@@ -1107,6 +1169,7 @@ export class MockProvider implements NormalizerProvider {
       skillProficiency,
       startingEquipment: startingEquipment || `Starting equipment for ${name}.`,
       features: features.length > 0 ? features : CLASS_TEMPLATE.features,
+      levelProgression,
       traits: {
         hitDie,
         primaryAbility: [primaryAbility],
@@ -1141,13 +1204,23 @@ export class MockProvider implements NormalizerProvider {
 
     // 2. Features with Level Fallback (Kickoff Level 3) & Action Economy Classification
     const entries = this.parseEntries(cleaned);
-    const features = entries
-      .filter(e => e.name.toLowerCase() !== name.toLowerCase() && !/^(?:[A-Za-z]+\s+Subclass|Subclass|Source|Player's Handbook)/i.test(e.name))
+    let currentSubLevel = 3;
+    const rawFeatures = entries
+      .filter(e => e.name.toLowerCase() !== name.toLowerCase() && !/^(?:[A-Za-z]+\s+Subclass|Subclass|Source|Player's Handbook|Level\s+\d+\s*:?$)/i.test(e.name))
       .map(e => {
-        const text = `${e.name} ${e.description}`;
+        let featName = e.name.trim();
+        let explicitLevelHeader = false;
+        const levelPrefixMatch = featName.match(/^Level\s+(\d+)\s*:\s*(.+)$/i);
+        if (levelPrefixMatch) {
+          currentSubLevel = parseInt(levelPrefixMatch[1], 10);
+          featName = levelPrefixMatch[2].trim();
+          explicitLevelHeader = true;
+        }
+        const text = `${featName} ${e.description}`;
         const lvlMatch =
           text.match(/(?:At|Starting\s+at|by)\s+(\d+)(?:st|nd|rd|th)?\s+level/i) ||
           text.match(/\b(\d+)(?:st|nd|rd|th)[- ]level\b/i);
+        const featLevel = explicitLevelHeader ? currentSubLevel : (lvlMatch ? parseInt(lvlMatch[1], 10) : currentSubLevel);
 
         let actionType = 'passive';
         if (/\b(?:bonus\s+action|as\s+a\s+bonus\s+action|use\s+a\s+bonus\s+action|a\s+bonus\s+action\s+to)\b/i.test(text)) {
@@ -1159,12 +1232,19 @@ export class MockProvider implements NormalizerProvider {
         }
 
         return {
-          name: e.name,
+          name: featName,
           description: e.description,
-          level: lvlMatch ? parseInt(lvlMatch[1], 10) : 3,
-          actionType
+          level: featLevel,
+          actionType,
+          _explicitLevelHeader: explicitLevelHeader
         };
       });
+
+    const features = PropertyValidator.consolidateFeatureListOptions(
+      rawFeatures,
+      options.targetLocale,
+      true
+    ).map((f: any) => PropertyValidator.validateFeatureMechanics(f, options.targetLocale));
 
     // 3. Subclass Proficiencies (traits)
     const armorProficiencies: string[] = [];
@@ -1578,11 +1658,11 @@ export class MockProvider implements NormalizerProvider {
         continue;
       }
 
-      // Check for markdown heading: ### Title
-      const hMatch = line.match(/^###\s+([^\n]+)/);
+      // Check for markdown heading: ### Title or ## Title
+      const hMatch = line.match(/^#{2,6}\s+([^\n]+)/);
       if (hMatch) {
         if (current) entries.push(current);
-        current = { name: hMatch[1].trim(), description: '' };
+        current = { name: hMatch[1].replace(/^[*_]+|[*_]+$/g, '').trim(), description: '' };
         continue;
       }
 
@@ -1605,9 +1685,9 @@ export class MockProvider implements NormalizerProvider {
         }
       }
 
-      // Check for standalone title line: Rage, Unarmored Defense, Channel Divinity: Preserve Life, etc.
+      // Check for standalone title line: Rage, Unarmored Defense, Level 1: Divine Order, Channel Divinity: Preserve Life, etc.
       const cleanLine = line.replace(/^[*_]+|[*_]+$/g, '').trim();
-      const isHeaderKey = /^(?:Casting\s+Time|Range|Components|Duration|Classes|Damage|Speed|AC|HP|Hit\s+(?:Point\s+)?(?:Die|Dice)|Saving\s+Throw|Skill\s+Proficienc|Tool\s+Proficienc|Armor\s+Training|Weapon\s+Proficienc|Starting\s+Equipment|Source|Prerequisite|Level\s+\d+)\s*:/i.test(cleanLine);
+      const isHeaderKey = /^(?:Casting\s+Time|Range|Components|Duration|Classes|Damage|Speed|AC|HP|Hit\s+(?:Point\s+)?(?:Die|Dice)|Saving\s+Throw|Skill\s+Proficienc|Tool\s+Proficienc|Armor\s+Training|Weapon\s+Proficienc|Starting\s+Equipment|Source|Prerequisite)\s*:/i.test(cleanLine);
 
       if (
         !isHeaderKey &&
@@ -1615,7 +1695,7 @@ export class MockProvider implements NormalizerProvider {
         cleanLine.length <= 60 &&
         !/[,;!?]/.test(cleanLine) &&
         !cleanLine.endsWith('.') &&
-        !/^(?:Speed|AC|HP|Ability|Score|Mod|Save|Str|Dex|Con|Int|Wis|Cha|The|Such|These|Those|When|If|After|Failure|Success|Trigger|Response|Level\s+\d+|Source|Choose\s+\d+|Starting\s+Equipment|Armor\s+Training|Hit\s+(?:Point\s+)?(?:Die|Dice)|Primary\s+Ability|Saving\s+Throw|Skill\s+Proficienc|Weapon\s+Proficienc)\b/i.test(cleanLine)
+        !/^(?:Speed|AC|HP|Ability|Score|Mod|Save|Str|Dex|Con|Int|Wis|Cha|The|Such|These|Those|When|If|After|Failure|Success|Trigger|Response|Level\s+\d+\s*$|Source|Choose\s+\d+|Starting\s+Equipment|Armor\s+Training|Hit\s+(?:Point\s+)?(?:Die|Dice)|Primary\s+Ability|Saving\s+Throw|Skill\s+Proficienc|Weapon\s+Proficienc)\b/i.test(cleanLine)
       ) {
         if (current) entries.push(current);
         current = {
