@@ -3590,6 +3590,201 @@ export class PropertyValidator {
     this.syncEntityFeatureTranslations(data, options);
   }
 
+  static readonly CANONICAL_ABILITIES = ['Strength', 'Dexterity', 'Constitution', 'Intelligence', 'Wisdom', 'Charisma'];
+  static readonly CANONICAL_SPELL_LISTS = ['Artificer', 'Bard', 'Cleric', 'Druid', 'Paladin', 'Ranger', 'Sorcerer', 'Warlock', 'Wizard'];
+  static readonly CANONICAL_SCHOOLS = ['Abjuration', 'Conjuration', 'Divination', 'Enchantment', 'Evocation', 'Illusion', 'Necromancy', 'Transmutation'];
+  static readonly FEAT_CHOICE_TYPES = ['skill', 'tool', 'spell', 'spell-list', 'language', 'ability', 'fighting-style', 'weapon'];
+
+  private static matchCanonical(value: any, list: string[]): string | undefined {
+    const v = String(value ?? '').trim().toLowerCase();
+    return list.find(c => c.toLowerCase() === v);
+  }
+
+  /**
+   * Normalizes abilityScoreIncrease, removes merged/bogus features, spell tables,
+   * grantedSpellsAlwaysPrepared and choices[] on feats.
+   */
+  static normalizeFeatAutomation(data: any, warnings: string[] = [], coercedFields: CoercedField[] = []): void {
+    const ALL = PropertyValidator.CANONICAL_ABILITIES;
+
+    // ---- 1. Drop merged feats / table-row junk from features[] ----
+    if (Array.isArray(data.features)) {
+      const kept: any[] = [];
+      data.features.forEach((f: any, i: number) => {
+        if (!f || typeof f !== 'object') return;
+        const name = String(f.name || '');
+        const desc = String(f.description || '').trim();
+        const isTableRow = /^Spell Slot Level/i.test(name) || /^\d+$/.test(desc);
+        const isMerged = i > 0 && (/You gain the following benefits/i.test(desc) || /Ability Score Increase\./i.test(desc));
+        const isPullQuote = /^[A-Z0-9\s,.'’"“”!?\-—]{25,}$/.test(desc) && desc === desc.toUpperCase();
+        if (isTableRow || isMerged || isPullQuote) {
+          warnings.push(`Dropped malformed feat feature "${name}" (merged feat, spell-table row or pull-quote)`);
+          return;
+        }
+        kept.push(f);
+      });
+      data.features = kept;
+    }
+
+    const allText = `${data.description || ''} ${(data.features || []).map((f: any) => `${f.name} ${f.description}`).join(' ')}`;
+
+    // ---- 2. abilityScoreIncrease ----
+    const asi = data.abilityScoreIncrease;
+    if (asi && typeof asi === 'object') {
+      let abilities: string[] = [];
+      const rawList = Array.isArray(asi.abilities) ? asi.abilities : [];
+      let anyChoice = false;
+      for (const a of rawList) {
+        const canon = PropertyValidator.matchCanonical(a, ALL);
+        if (canon) {
+          if (!abilities.includes(canon)) abilities.push(canon);
+        } else if (/choice|any|one ability|ability score/i.test(String(a))) {
+          anyChoice = true;
+        }
+      }
+      if (anyChoice || (rawList.length === 0 && /one ability score of your choice|choose one ability/i.test(allText))) {
+        abilities = [...ALL];
+      }
+      const amount = Number(asi.amount);
+      if (abilities.length === 0 || !(amount === 1 || amount === 2)) {
+        if (abilities.length === 0 || !(amount > 0)) {
+          delete data.abilityScoreIncrease;
+          coercedFields.push({ path: 'abilityScoreIncrease', original: asi, coerced: undefined, reason: 'Removed empty/invalid abilityScoreIncrease' });
+        } else {
+          data.abilityScoreIncrease = { abilities, amount: amount >= 2 ? 2 : 1, choice: abilities.length > 1 };
+        }
+      } else {
+        const out: any = { abilities, amount, choice: abilities.length > 1 ? true : Boolean(asi.choice) };
+        if (asi.grantsSavingThrowProficiency === true) out.grantsSavingThrowProficiency = true;
+        data.abilityScoreIncrease = out;
+      }
+    } else if (asi !== undefined) {
+      delete data.abilityScoreIncrease;
+    }
+    if (data.abilityScoreIncrease) {
+      if (/saving throw proficiency (?:with|in) the chosen ability/i.test(allText)) {
+        data.abilityScoreIncrease.grantsSavingThrowProficiency = true;
+      } else if (data.abilityScoreIncrease.grantsSavingThrowProficiency !== true) {
+        delete data.abilityScoreIncrease.grantsSavingThrowProficiency;
+      }
+    }
+
+    // ---- 3. Spell tables + grantedSpellsAlwaysPrepared ----
+    const wrapSpells = (html: string): string =>
+      html.replace(/<td>(?!\d+<\/td>)([^<]+)<\/td>/g, (m, inner) =>
+        /\[spell\]/.test(inner) ? m : `<td>[spell]${inner.trim()}[/spell]</td>`
+      );
+    const fixFeatureTable = (f: any) => {
+      if (!f || typeof f.description !== 'string') return;
+      if (f.description.includes('feat-spell-table-wrap')) {
+        f.description = f.description.replace(/<div class="feat-spell-table-wrap">[\s\S]*?<\/div>/g, (block: string) =>
+          wrapSpells(block.replace(/\s*\n\s*/g, ''))
+        );
+      }
+    };
+    for (const f of data.features || []) {
+      fixFeatureTable(f);
+      const granted: any[] = [];
+      const seen = new Set<string>();
+      const push = (g: any) => {
+        const key = `${String(g.spellName).toLowerCase()}|${g.minSlotLevel ?? ''}|${g.minCharacterLevel ?? ''}`;
+        if (seen.has(key)) return;
+        seen.add(key);
+        granted.push(g);
+      };
+      if (Array.isArray(f.grantedSpellsAlwaysPrepared)) {
+        for (const g of f.grantedSpellsAlwaysPrepared) {
+          if (!g || typeof g.spellName !== 'string' || !g.spellName.trim()) continue;
+          const o: any = { spellName: g.spellName.trim() };
+          if (typeof g.spellId === 'string' && /^[0-9a-f]{24}$/i.test(g.spellId)) o.spellId = g.spellId;
+          if (Number.isInteger(g.minSlotLevel) && g.minSlotLevel >= 1 && g.minSlotLevel <= 9) o.minSlotLevel = g.minSlotLevel;
+          if (Number.isInteger(g.minCharacterLevel) && g.minCharacterLevel >= 1) o.minCharacterLevel = g.minCharacterLevel;
+          push(o);
+        }
+      }
+      const desc = String(f.description || '');
+      const tableMatch = desc.match(/<div class="feat-spell-table-wrap">[\s\S]*?<\/div>/);
+      if (tableMatch) {
+        const rowRe = /<tr><td>(\d+)<\/td><td>\[spell\]([^\[]+)\[\/spell\]<\/td><\/tr>/g;
+        let m: RegExpExecArray | null;
+        while ((m = rowRe.exec(tableMatch[0])) !== null) {
+          push({ spellName: m[2].trim(), minSlotLevel: parseInt(m[1], 10) });
+        }
+      }
+      const alwaysRe = /always have (?:that spell and )?the ([A-Z][A-Za-z' ]+?) spell prepared/g;
+      let am: RegExpExecArray | null;
+      while ((am = alwaysRe.exec(desc)) !== null) push({ spellName: am[1].trim() });
+      if (granted.length > 0) f.grantedSpellsAlwaysPrepared = granted;
+      else delete f.grantedSpellsAlwaysPrepared;
+    }
+    if (data.translations && typeof data.translations === 'object') {
+      for (const loc of Object.values(data.translations) as any[]) {
+        if (loc && Array.isArray(loc.features)) loc.features.forEach(fixFeatureTable);
+      }
+    }
+
+    // ---- 4. choices[] ----
+    if (Array.isArray(data.choices)) {
+      const ids = new Set<string>();
+      const choices: any[] = [];
+      for (const c of data.choices) {
+        if (!c || typeof c !== 'object') continue;
+        const type = PropertyValidator.matchCanonical(c.type, PropertyValidator.FEAT_CHOICE_TYPES);
+        if (!type) { warnings.push(`Dropped feat choice with invalid type "${c.type}"`); continue; }
+        let id = String(c.id || type).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || type;
+        let base = id, n = 2;
+        while (ids.has(id)) id = `${base}-${n++}`;
+        ids.add(id);
+        const out: any = {
+          id,
+          type,
+          count: Number.isInteger(c.count) && c.count >= 1 ? c.count : 1,
+          description: String(c.description || `Choose ${type}`)
+        };
+        let options = Array.isArray(c.options) ? c.options.map((o: any) => String(o)) : undefined;
+        let restrictions = c.restrictions && typeof c.restrictions === 'object' ? { ...c.restrictions } : undefined;
+        if (restrictions) {
+          const r: any = {};
+          if (Number.isInteger(restrictions.spellLevel) && restrictions.spellLevel >= 0 && restrictions.spellLevel <= 9) r.spellLevel = restrictions.spellLevel;
+          const lists = (Array.isArray(restrictions.spellList) ? restrictions.spellList : [])
+            .map((x: any) => PropertyValidator.matchCanonical(x, PropertyValidator.CANONICAL_SPELL_LISTS)).filter(Boolean);
+          if (lists.length) r.spellList = lists;
+          const schools = (Array.isArray(restrictions.school) ? restrictions.school : [])
+            .map((x: any) => PropertyValidator.matchCanonical(x, PropertyValidator.CANONICAL_SCHOOLS)).filter(Boolean);
+          if (schools.length) r.school = schools;
+          if (restrictions.ritual === true) r.ritual = true;
+          restrictions = Object.keys(r).length ? r : undefined;
+        }
+        if (type === 'spell') {
+          if (options && options.length) {
+            const asLists = options.map((o: string) => PropertyValidator.matchCanonical(o, PropertyValidator.CANONICAL_SPELL_LISTS)).filter(Boolean) as string[];
+            if (restrictions) {
+              // Picking actual spells: options would turn it into a spell-list picker -> move into restrictions
+              if (!restrictions.spellList && asLists.length) restrictions.spellList = asLists;
+              options = undefined;
+            } else {
+              // No restrictions: this is really a spell-list selector
+              out.type = 'spell-list';
+              out.options = asLists.length ? asLists : options;
+              options = undefined;
+            }
+          }
+          if (out.type === 'spell' && restrictions) out.restrictions = restrictions;
+        } else if (type === 'spell-list') {
+          if (options && options.length) out.options = options;
+        } else if (type === 'ability') {
+          const ab = (options || []).map((o: string) => PropertyValidator.matchCanonical(o, ALL)).filter(Boolean) as string[];
+          if (ab.length) out.options = ab;
+        } else {
+          if (options && options.length) out.options = options;
+          if (restrictions) out.restrictions = restrictions;
+        }
+        choices.push(out);
+      }
+      if (choices.length) data.choices = choices; else delete data.choices;
+    }
+  }
+
   /**
    * Feat property validation
    */
@@ -3624,6 +3819,8 @@ export class PropertyValidator {
     data.features = (Array.isArray(data.features) ? data.features : []).map((f: any) =>
       PropertyValidator.validateFeatureMechanics(f)
     );
+
+    PropertyValidator.normalizeFeatAutomation(data, warnings, coercedFields);
 
     // Ensure non-empty description (synthesizing from features or benefit overview if source jumps directly to benefits)
     tickCheck();

@@ -457,4 +457,82 @@ export interface SpellActiveEffect {
   };
 }
 
+// ==========================================
+// 4. FEAT AUTOMATION & CHOICES
+// ==========================================
+export type FeatAbilityName =
+  | 'Strength'
+  | 'Dexterity'
+  | 'Constitution'
+  | 'Intelligence'
+  | 'Wisdom'
+  | 'Charisma';
+
+export interface FeatAbilityScoreIncrease {
+  abilities: FeatAbilityName[];
+  amount: 1 | 2;
+  choice: boolean;
+  grantsSavingThrowProficiency?: boolean;
+}
+
+export interface GrantedSpellAlwaysPrepared {
+  spellId?: string;
+  spellName: string;
+  minSlotLevel?: number;
+  minCharacterLevel?: number;
+}
+
+export type FeatChoiceType =
+  | 'skill'
+  | 'tool'
+  | 'spell'
+  | 'spell-list'
+  | 'language'
+  | 'ability'
+  | 'fighting-style'
+  | 'weapon';
+
+export type FeatSpellListName =
+  | 'Artificer'
+  | 'Bard'
+  | 'Cleric'
+  | 'Druid'
+  | 'Paladin'
+  | 'Ranger'
+  | 'Sorcerer'
+  | 'Warlock'
+  | 'Wizard';
+
+export type FeatSpellSchoolName =
+  | 'Abjuration'
+  | 'Conjuration'
+  | 'Divination'
+  | 'Enchantment'
+  | 'Evocation'
+  | 'Illusion'
+  | 'Necromancy'
+  | 'Transmutation';
+
+export interface FeatChoiceRestrictions {
+  spellLevel?: number;
+  spellList?: FeatSpellListName[];
+  school?: FeatSpellSchoolName[];
+  ritual?: boolean;
+}
+
+export interface FeatChoice {
+  id: string;
+  type: FeatChoiceType;
+  count: number;
+  options?: string[];
+  restrictions?: FeatChoiceRestrictions;
+  description: string;
+}
+
+export interface FeatPrerequisiteRules {
+  version: 1;
+  all: Array<Record<string, any>>;
+}
+
+
 

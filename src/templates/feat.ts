@@ -68,11 +68,33 @@ export const FEAT_PROMPT_GUIDE = `### SPECIAL INSTRUCTIONS FOR D&D FEATS:
 1. featType: Must be one of ['Origin', 'General', 'Fighting Style', 'Epic Boon'].
 2. prerequisite: Prerequisites string (e.g., "Level 4+, Strength 13+" or "None").
 3. repeatable: Boolean, true only if explicitly stated that the feat can be taken multiple times.
-4. abilityScoreIncrease: If the feat provides an ability score increase, populate { abilities: string[], amount: number, choice?: boolean }.
+4. abilityScoreIncrease:
+   - ONLY include 'abilityScoreIncrease' when the feat actually grants an Ability Score Increase. When a feat does NOT grant an Ability Score Increase (e.g., Origin feats or Fighting Style feats), OMIT 'abilityScoreIncrease' entirely (NEVER output { abilities: [], amount: 0 }).
+   - 'abilities' MUST ONLY contain canonical ability names from: ["Strength", "Dexterity", "Constitution", "Intelligence", "Wisdom", "Charisma"]. NEVER output "Choice" or "One ability score of your choice".
+   - When a feat says "Increase one ability score of your choice by 1" or "Choose one ability... Increase the chosen ability score by 1" (e.g., Resilient, Skill Expert, Epic Boons, Familiar feats), output ALL 6 canonical ability names in 'abilities' with amount: 1, choice: true.
+   - 'choice' MUST be true whenever 'abilities.length > 1'.
+   - Set 'grantsSavingThrowProficiency: true' if and only if the feat grants saving throw proficiency in the chosen ability (e.g., Resilient).
 5. features: Break down each distinct benefit / bullet point into the features array with { name, description, category }.
-   Category must be one of: ['Combat', 'Utility', 'Spellcasting', 'Skills', 'Active', 'Passive'].
-6. description: General introductory overview of the feat. CRITICAL: If the source text jumps directly into named benefits or bullet points without an introductory paragraph (e.g., Grappler, Dual Wielder), populate description with an introductory sentence such as "You gain the following benefits:". NEVER leave description empty.
-7. edition: "2024", system: "D&D 5.5e".
+   - Category must be one of: ['Combat', 'Utility', 'Spellcasting', 'Skills', 'Active', 'Passive'].
+   - NEVER merge a subsequent feat (a heading followed by "General Feat", "Origin Feat", "Fighting Style Feat", or "Epic Boon Feat") or decorative all-caps pull-quotes into 'features'.
+   - NEVER turn rows of a "<Feat Name> Spells" table into separate entries in 'features'. Keep the benefit paragraph immediately preceding a spell table (e.g., Prescient Intervention) intact as its own feature.
+6. SPELL TABLES & grantedSpellsAlwaysPrepared (on 'features[]'):
+   - When a feat has a "<Feat Name> Spells" table (e.g., School Adept feats mapping Spell Slot Level 1..5 -> Spell):
+     a) Embed the table as a single-line HTML block (no '\\n' inside the div) at the end of the "Additional Spells" feature 'description' (and in 'translations["pt-BR"].features[].description'), wrapping every spell name in [spell]Spell Name[/spell] tags:
+        <div class="feat-spell-table-wrap"><p><strong>Evocation Adept Spells</strong></p><table><thead><tr><th>Spell Slot Level</th><th>Spell</th></tr></thead><tbody><tr><td>1</td><td>[spell]Chromatic Orb[/spell]</td></tr><tr><td>2</td><td>[spell]Shatter[/spell]</td></tr><tr><td>3</td><td>[spell]Fireball[/spell]</td></tr><tr><td>4</td><td>[spell]Vitriolic Sphere[/spell]</td></tr><tr><td>5</td><td>[spell]Wall of Force[/spell]</td></tr></tbody></table></div>
+     b) Populate 'grantedSpellsAlwaysPrepared' on that feature with [{ "spellName": "Chromatic Orb", "minSlotLevel": 1 }, ...] (or "minCharacterLevel" when gated by character level).
+   - When a feature states "You always have the X spell prepared" or "You learn the X cantrip" (e.g., Misty Step on Fey Touched, Invisibility on Shadow Touched), populate 'grantedSpellsAlwaysPrepared': [{ "spellName": "Misty Step" }].
+7. choices[] ON SPELL-CHOOSING & ABILITY-CHOOSING FEATS:
+   - Every choice must have a unique 'id', valid 'type' ("skill" | "tool" | "spell" | "spell-list" | "language" | "ability" | "fighting-style" | "weapon"), 'count' >= 1, and 'description'.
+   - NEVER set 'options' on a 'type: "spell"' choice that picks actual spells! Omit 'options' and put filters in 'restrictions':
+     - 'spellLevel': 0 (cantrip) or 1..9
+     - 'spellList': array from ["Artificer", "Bard", "Cleric", "Druid", "Paladin", "Ranger", "Sorcerer", "Warlock", "Wizard"] (omit if the spell comes from a sibling 'spell-list' choice or is restricted only by school/ritual)
+     - 'school': array from ["Abjuration", "Conjuration", "Divination", "Enchantment", "Evocation", "Illusion", "Necromancy", "Transmutation"] (e.g., ["Divination", "Enchantment"] for Fey Touched)
+     - 'ritual': true (e.g., for Ritual Caster)
+   - Only use 'options: ["Cleric", "Druid", "Wizard"]' when the player must first choose WHICH class's spell list to use ('id: "spell-list"', 'type: "spell-list"', no 'restrictions'), and then sibling 'type: "spell"' choices only need 'restrictions: { "spellLevel": N }'.
+   - If the player chooses a spellcasting ability (e.g., "Intelligence, Wisdom, or Charisma is your spellcasting ability for this spell"), include a choice with 'id: "spellcasting-ability"', 'type: "ability"', 'count: 1', 'options: ["Intelligence", "Wisdom", "Charisma"]'.
+8. description: General introductory overview of the feat. CRITICAL: If the source text jumps directly into named benefits or bullet points without an introductory paragraph, populate description with "You gain the following benefits." NEVER leave description empty.
+9. edition: "2024", system: "D&D 5.5e".
 
 FEATURE LIMITED USES & RECHARGE:
 For each feature in 'features':

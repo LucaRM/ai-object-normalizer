@@ -368,6 +368,23 @@ export class MockProvider implements NormalizerProvider {
         amount: parseInt(asiMatch[2], 10),
         choice: false
       };
+    } else if (/Increase one ability score of your choice by (\d+)/i.test(cleaned) || /Choose one ability[^.]*\.\s*Increase the chosen ability score by (\d+)/i.test(cleaned)) {
+      const amt = cleaned.match(/by (\d+)/i);
+      abilityScoreIncrease = {
+        abilities: ['Strength', 'Dexterity', 'Constitution', 'Intelligence', 'Wisdom', 'Charisma'],
+        amount: amt ? parseInt(amt[1], 10) : 1,
+        choice: true,
+        ...(/saving throw proficiency (?:with|in) the chosen ability/i.test(cleaned) && { grantsSavingThrowProficiency: true })
+      };
+    } else {
+      const multi = cleaned.match(/Increase your ((?:Strength|Dexterity|Constitution|Intelligence|Wisdom|Charisma)(?:,? (?:or )?(?:Strength|Dexterity|Constitution|Intelligence|Wisdom|Charisma))+) score by (\d+)/i);
+      if (multi) {
+        abilityScoreIncrease = {
+          abilities: multi[1].match(/Strength|Dexterity|Constitution|Intelligence|Wisdom|Charisma/gi)!.map(a => a[0].toUpperCase() + a.slice(1).toLowerCase()),
+          amount: parseInt(multi[2], 10),
+          choice: true
+        };
+      }
     }
 
     // 5. Filter header lines to isolate body
